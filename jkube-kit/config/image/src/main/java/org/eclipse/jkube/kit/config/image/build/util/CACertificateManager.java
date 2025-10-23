@@ -42,7 +42,7 @@ public class CACertificateManager {
     /**
      * Generates RUN commands to install CA certificates based on the base image.
      *
-     * @param baseImage The base image name (e.g., "openjdk:11-jre-slim", "node:16-alpine")
+     * @param baseImage The base image name (e.g., "openjdk:11-jre-slim")
      * @param certPaths List of certificate file paths to install
      * @return List of RUN commands to add to the Dockerfile
      */
