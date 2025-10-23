@@ -92,7 +92,8 @@ public class BuildPackBuildService extends AbstractImageBuildService {
       buildPackBuildOptionsBuilder.env(imageConfiguration.getBuild().getEnv())
           .tags(imageConfiguration.getBuild().getTags())
           .clearCache(Optional.ofNullable(imageConfiguration.getBuild().getNocache()).orElse(false))
-          .volumes(imageConfiguration.getBuild().getVolumes());
+          .volumes(imageConfiguration.getBuild().getVolumes())
+          .caCerts(imageConfiguration.getBuild().getCaCerts());
     }
     new BuildPackCliController(packCli, kitLogger).build(buildPackBuildOptionsBuilder.build());
   }

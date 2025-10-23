@@ -83,7 +83,8 @@ class AssemblyConfigurationUtils {
             .expose(buildConfig.getPorts())
             .run(buildConfig.getRunCmds())
             .volumes(buildConfig.getVolumes())
-            .user(buildConfig.getUser());
+            .user(buildConfig.getUser())
+            .caCerts(buildConfig.getCaCerts());
     Optional.ofNullable(buildConfig.getMaintainer()).ifPresent(builder::maintainer);
     Optional.ofNullable(buildConfig.getWorkdir()).ifPresent(builder::workdir);
     Optional.ofNullable(buildConfig.getHealthCheck()).ifPresent(builder::healthCheck);

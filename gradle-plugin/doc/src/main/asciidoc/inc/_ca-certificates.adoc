@@ -1,0 +1,250 @@
+
+[[ca-certificates]]
+= CA Certificates Support
+
+[[ca-certificates-overview]]
+== Overview
+
+The JKube build service supports adding self-signed CA certificates to container images during the build process.
+This functionality is essential when building applications that need to trust custom certificate authorities, such as internal company CAs or self-signed certificates for development environments.
+
+[[ca-certificates-features]]
+== Features
+
+* *Multi-Strategy Support*: Works with Docker, Jib, and Buildpacks build strategies
+* *Runtime Detection*: Automatically detects the base image runtime (Java, or generic) and applies appropriate certificate installation methods
+* *OS Detection*: Supports Alpine, Debian/Ubuntu, and Red Hat-based images
+* *Runtime-Specific Installation*:
+** For Java images: Installs certificates into both system trust store and Java's cacerts keystore
+
+[[ca-certificates-usage]]
+== Usage
+
+[[ca-certificates-gradle-configuration]]
+=== Gradle Plugin Configuration
+
+Add CA certificates to your image build configuration:
+
+[source,kotlin,indent=0,subs="verbatim,attributes"]
+----
+kubernetes {
+    images {
+        image {
+            name = "my-app:latest"
+            build {
+                from = "openjdk:11-jre-slim"
+                caCerts = listOf(
+                    file("certs/my-company-ca.crt").absolutePath,
+                    file("certs/dev-ca.pem").absolutePath
+                )
+                // other build configuration
+            }
+        }
+    }
+}
+----
+
+[[ca-certificates-build-strategies]]
+== Build Strategy Specific Behavior
+
+[[ca-certificates-docker-strategy]]
+=== Docker Build Strategy
+
+When using the Docker build strategy, CA certificates are:
+
+. Copied to `/tmp/certs` in the container
+. Installed into the appropriate system trust store based on the base image OS
+. For Java runtimes: Also imported into `$JAVA_HOME/lib/security/cacerts`
+. The temporary `/tmp/certs` directory is cleaned up after installation
+
+.Example Dockerfile snippet generated
+[source,dockerfile,indent=0]
+----
+FROM openjdk:11-jre-slim
+
+COPY cert-0-my-company-ca.crt /tmp/certs/cert-0-my-company-ca.crt
+COPY cert-1-dev-ca.pem /tmp/certs/cert-1-dev-ca.pem
+
+RUN cp /tmp/certs/cert-0-my-company-ca.crt /usr/local/share/ca-certificates/ && \
+    cp /tmp/certs/cert-1-dev-ca.pem /usr/local/share/ca-certificates/ && \
+    update-ca-certificates && \
+    keytool -importcert -noprompt -trustcacerts -alias jkube-cert-0 \
+    -file /tmp/certs/cert-0-my-company-ca.crt \
+    -keystore $JAVA_HOME/lib/security/cacerts -storepass changeit || \
+    keytool -importcert -noprompt -trustcacerts -alias jkube-cert-0 \
+    -file /tmp/certs/cert-0-my-company-ca.crt \
+    -keystore $JAVA_HOME/jre/lib/security/cacerts -storepass changeit || true && \
+    keytool -importcert -noprompt -trustcacerts -alias jkube-cert-1 \
+    -file /tmp/certs/cert-1-dev-ca.pem \
+    -keystore $JAVA_HOME/lib/security/cacerts -storepass changeit || \
+    keytool -importcert -noprompt -trustcacerts -alias jkube-cert-1 \
+    -file /tmp/certs/cert-1-dev-ca.pem \
+    -keystore $JAVA_HOME/jre/lib/security/cacerts -storepass changeit || true
+
+RUN rm -rf /tmp/certs
+----
+
+[[ca-certificates-jib-strategy]]
+=== Jib Build Strategy
+
+When using Jib, CA certificates are:
+
+. Added as a separate layer to the container image
+. Placed in `/tmp/certs` directory
+
+[NOTE]
+====
+Jib doesn't support RUN commands, so the certificates are only copied. For full trust store integration with Jib, consider:
+
+* Using a base image that already includes your CA certificates
+* Creating a custom base image with certificates pre-installed
+* Using the Docker build strategy instead
+====
+
+[[ca-certificates-buildpacks-strategy]]
+=== Buildpacks Build Strategy
+
+When using Buildpacks:
+
+. CA certificates are mounted as volumes into the build container
+. Mounted to `/platform/certs/` directory
+. The buildpack builder image is responsible for processing these certificates
+
+[NOTE]
+====
+Certificate installation depends on the buildpack builder's support for custom CA certificates. Check your builder image documentation for details.
+====
+
+[[ca-certificates-runtime-behaviors]]
+== Runtime-Specific Behaviors
+
+[[ca-certificates-java-runtime]]
+=== Java Runtime
+
+For images with Java runtime (detected by patterns: `java`, `openjdk`, `jdk`, `jre`, `eclipse-temurin`):
+
+* Certificates are installed in system trust store
+* Certificates are also imported into Java's cacerts keystore using `keytool`
+* Handles both JDK 8 and JDK 9+ directory structures
+
+[[ca-certificates-generic-runtime]]
+=== Generic Runtime
+
+For images that don't match known runtimes:
+
+* Only system-level CA certificate installation is performed
+
+[[ca-certificates-os-behaviors]]
+== OS-Specific Behaviors
+
+[[ca-certificates-alpine]]
+=== Alpine Linux
+
+* Certificates copied to `/usr/local/share/ca-certificates/`
+* Trust store updated with `update-ca-certificates`
+* System bundle: `/etc/ssl/certs/ca-certificates.crt`
+
+[[ca-certificates-debian-ubuntu]]
+=== Debian/Ubuntu
+
+* Certificates copied to `/usr/local/share/ca-certificates/`
+* Trust store updated with `update-ca-certificates`
+* System bundle: `/etc/ssl/certs/ca-certificates.crt`
+
+[[ca-certificates-redhat]]
+=== Red Hat/CentOS/Fedora/UBI
+
+* Certificates copied to `/etc/pki/ca-trust/source/anchors/`
+* Trust store updated with `update-ca-trust`
+* System bundle: `/etc/pki/tls/certs/ca-bundle.crt`
+
+[[ca-certificates-file-formats]]
+== Certificate File Formats
+
+Supported certificate formats:
+
+* `.crt` - X.509 certificate in PEM format
+* `.pem` - PEM encoded certificate
+* `.cer` - X.509 certificate
+
+[IMPORTANT]
+====
+Certificates must be in PEM (Base64 encoded) format, not DER (binary) format.
+====
+
+[[ca-certificates-best-practices]]
+== Best Practices
+
+. *Keep Certificates Secure*: Store CA certificates in a secure location and avoid committing them to version control
+. *Use Relative Paths*: Use project-relative paths for portability
+. *Verify Certificate Validity*: Ensure certificates are valid and not expired
+. *Choose Appropriate Build Strategy*:
+* Use Docker strategy for full CA certificate integration
+* Use Jib for faster builds when certificates are already in base image
+* Use Buildpacks when your builder supports custom CAs
+. *Document Requirements*: Document which CA certificates are required for your application
+
+[[ca-certificates-troubleshooting]]
+== Troubleshooting
+
+[[ca-certificates-troubleshooting-not-trusted]]
+=== Certificate Not Trusted After Build
+
+. Verify the certificate file exists at the specified path
+. Check that the certificate is in PEM format
+. Ensure the base image includes certificate management tools (`ca-certificates` package)
+. Review build logs for any certificate installation errors
+
+[[ca-certificates-troubleshooting-java-ssl]]
+=== Java Applications Still Fail with SSL Errors
+
+. Verify `keytool` is available in the base image
+. Check that `JAVA_HOME` is properly set in the base image
+. Consider setting `-Djavax.net.debug=ssl` to debug SSL issues
+
+[[ca-certificates-troubleshooting-buildpacks]]
+=== Buildpacks Build Doesn't Use Certificates
+
+. Check if your buildpack builder supports custom CA certificates
+. Verify certificates are correctly mounted to `/platform/certs/`
+. Consult your buildpack builder documentation for CA certificate configuration
+
+[[ca-certificates-examples]]
+== Example Scenarios
+
+[[ca-certificates-examples-corporate]]
+=== Corporate Network with Internal CA
+
+[source,kotlin,indent=0]
+----
+caCerts = listOf(
+    "/path/to/corporate-root-ca.crt",
+    "/path/to/corporate-intermediate-ca.crt"
+)
+----
+
+[[ca-certificates-examples-dev]]
+=== Development with Self-Signed Certificates
+
+[source,kotlin,indent=0]
+----
+caCerts = listOf(
+    file("src/main/docker/certs/dev-ca.pem").absolutePath
+)
+----
+
+[[ca-certificates-examples-multi-env]]
+=== Multi-Environment Setup
+
+[source,kotlin,indent=0]
+----
+caCerts = listOf(
+    System.getProperty("ca.cert.path", "")
+)
+----
+
+Then use properties:
+[source,bash,indent=0]
+----
+./gradlew k8sBuild -Dca.cert.path=/path/to/prod-ca.crt
+----

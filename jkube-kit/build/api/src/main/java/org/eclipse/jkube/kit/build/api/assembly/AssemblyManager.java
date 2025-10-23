@@ -46,6 +46,7 @@ import org.eclipse.jkube.kit.common.util.JKubeProjectUtil;
 import org.eclipse.jkube.kit.config.image.ImageConfiguration;
 import org.eclipse.jkube.kit.config.image.build.BuildConfiguration;
 import org.eclipse.jkube.kit.config.image.build.DockerFileBuilder;
+import org.eclipse.jkube.kit.config.image.build.util.CACertificateManager;
 import org.eclipse.jkube.kit.common.JKubeConfiguration;
 
 import javax.annotation.Nonnull;
@@ -394,6 +395,9 @@ public class AssemblyManager {
 
             return archiver;
         });
+
+        // Add CA certificate files to the build context
+        addCaCertificatesToBuildContext(buildConfig, archiveCustomizers);
     }
 
     private void createDockerTarArchiveForGeneratorMode(BuildConfiguration buildConfig, BuildDirs buildDirs,
@@ -408,6 +412,9 @@ public class AssemblyManager {
             archiver.includeFile(dockerFile, DOCKERFILE_NAME);
             return archiver;
         });
+
+        // Add CA certificate files to the build context
+        addCaCertificatesToBuildContext(buildConfig, archiveCustomizers);
     }
 
     @Nonnull
@@ -471,6 +478,33 @@ public class AssemblyManager {
             includes.addAll(Files.readAllLines(dockerInclude.toPath()));
         }
         return includes;
+    }
+
+    /**
+     * Adds CA certificate files to the Docker build context archive.
+     *
+     * @param buildConfig Build configuration containing CA certificate paths
+     * @param archiveCustomizers List of archive customizers to add the certificate customizer to
+     */
+    private static void addCaCertificatesToBuildContext(BuildConfiguration buildConfig, List<ArchiverCustomizer> archiveCustomizers) {
+        if (buildConfig.getCaCerts() == null || buildConfig.getCaCerts().isEmpty()) {
+            return;
+        }
+
+        archiveCustomizers.add(archiver -> {
+            List<String> caCerts = buildConfig.getCaCerts();
+            for (int i = 0; i < caCerts.size(); i++) {
+                String certPath = caCerts.get(i);
+                File certFile = new File(certPath);
+                if (!certFile.exists()) {
+                    throw new IOException("CA certificate file not found: " + certPath);
+                }
+                // Use the same naming convention as CACertificateManager
+                String targetFileName = CACertificateManager.getCertificateFilenameInBuildContext(certPath, i);
+                archiver.includeFile(certFile, targetFileName);
+            }
+            return archiver;
+        });
     }
 
 }

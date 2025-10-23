@@ -32,6 +32,7 @@ import java.util.regex.Pattern;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.jkube.kit.common.Arguments;
+import org.eclipse.jkube.kit.config.image.build.util.CACertificateManager;
 
 /**
  * Create a dockerfile
@@ -87,6 +88,9 @@ public class DockerFileBuilder {
     // exposed volumes
     private final List<String> volumes = new ArrayList<>();
 
+    // CA certificates to install
+    private final List<String> caCerts = new ArrayList<>();
+
     // whether the Dockerfile should be optimised. i.e. compressing run statements into a single statement
     private boolean shouldOptimise = false;
 
@@ -123,6 +127,7 @@ public class DockerFileBuilder {
         addPorts(b);
 
         addCopy(b);
+        addCaCertificates(b);
         addWorkdir(b);
         addRun(b);
         addVolumes(b);
@@ -330,6 +335,32 @@ public class DockerFileBuilder {
         }
     }
 
+    private void addCaCertificates(StringBuilder b) {
+        if (caCerts.isEmpty()) {
+            return;
+        }
+
+        // Copy certificate files to /tmp/certs
+        List<CACertificateManager.CopyCertEntry> certEntries =
+            CACertificateManager.generateCopyCertEntries(caCerts, "/tmp/certs");
+        for (CACertificateManager.CopyCertEntry entry : certEntries) {
+            DockerFileKeyword.COPY.addTo(b, entry.getSource(), entry.getDestination());
+        }
+
+        // Generate and add certificate installation commands
+        List<String> certInstallCommands =
+            CACertificateManager.generateCertInstallCommands(baseImage, caCerts);
+
+        if (!certInstallCommands.isEmpty()) {
+            // Combine all cert installation commands into a single RUN statement
+            String combinedCommand = String.join(" && ", certInstallCommands);
+            DockerFileKeyword.RUN.addTo(b, combinedCommand);
+
+            // Clean up temporary certificates directory
+            DockerFileKeyword.RUN.addTo(b, "rm -rf /tmp/certs");
+        }
+    }
+
     private void addVolumes(StringBuilder b) {
         if (exportTargetDir != null ? exportTargetDir : baseImage == null) {
             addVolume(b, basedir);
@@ -460,6 +491,13 @@ public class DockerFileBuilder {
 
     public DockerFileBuilder optimise() {
         this.shouldOptimise = true;
+        return this;
+    }
+
+    public DockerFileBuilder caCerts(List<String> caCerts) {
+        if (caCerts != null) {
+            this.caCerts.addAll(caCerts);
+        }
         return this;
     }
 

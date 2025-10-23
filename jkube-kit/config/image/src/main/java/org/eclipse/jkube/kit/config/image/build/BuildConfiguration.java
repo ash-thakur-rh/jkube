@@ -336,6 +336,15 @@ public class BuildConfiguration implements Serializable {
   @Singular("addCacheFrom")
   private List<String> cacheFrom;
 
+  /**
+   * List of paths to self-signed CA certificate files to add to the image.
+   * The certificates will be added to the appropriate trust store based on the base image runtime.
+   * <p>
+   * This field is applicable for all build strategies.
+   */
+  @Singular("addCaCert")
+  private List<String> caCerts;
+
   ///////////////////////////////////////////////////////////////////////////
   // Fields applicable to buildpacks build strategy
   ///////////////////////////////////////////////////////////////////////////
@@ -475,6 +484,10 @@ public class BuildConfiguration implements Serializable {
 
   public List<String> getRunCmds() {
     return removeEmptyEntries(runCmds);
+  }
+
+  public List<String> getCaCerts() {
+    return removeEmptyEntries(caCerts);
   }
 
   public boolean optimise() {

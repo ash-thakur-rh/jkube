@@ -73,6 +73,8 @@ public class BuildPackCliController implements BuildPackController {
     buildArgs.addAll(Arrays.asList("--creation-time", buildOptions.getCreationTime()));
     buildArgs.addAll(extractStringArg("--pull-policy", buildOptions.getImagePullPolicy()));
     buildArgs.addAll(extractRepeatedArgsForListElements("--volume", buildOptions.getVolumes()));
+    // Mount CA certificates as volumes if provided
+    buildArgs.addAll(extractRepeatedArgsForListElements("--volume", buildCaCertVolumeMounts(buildOptions.getCaCerts())));
     if (buildOptions.getTags() != null && !buildOptions.getTags().isEmpty()) {
       ImageName specifiedImageName = new ImageName(buildOptions.getImageName());
       List<String> imageNameWithAdditionalTags = buildOptions.getTags().stream()
@@ -116,5 +118,33 @@ public class BuildPackCliController implements BuildPackController {
       entryKeyValue = entryKeyValue + "=" + e.getValue();
     }
     return entryKeyValue;
+  }
+
+  /**
+   * Builds volume mount specifications for CA certificates.
+   * Each certificate is mounted from the host filesystem to /platform/certs/ in the build container.
+   * Note: Buildpacks doesn't support RUN commands, so certificates must be handled by the builder image itself.
+   *
+   * @param caCerts list of CA certificate file paths
+   * @return list of volume mount specifications in the format "host_path:container_path"
+   */
+  private List<String> buildCaCertVolumeMounts(List<String> caCerts) {
+    if (caCerts == null || caCerts.isEmpty()) {
+      return Collections.emptyList();
+    }
+
+    List<String> volumeMounts = new ArrayList<>();
+    for (int i = 0; i < caCerts.size(); i++) {
+      String certPath = caCerts.get(i);
+      File certFile = new File(certPath);
+      if (certFile.exists()) {
+        // Mount each certificate to /platform/certs/ directory
+        // The buildpack builder can then pick these up
+        volumeMounts.add(certFile.getAbsolutePath() + ":/platform/certs/cert-" + i + "-" + certFile.getName());
+      } else {
+        kitLogger.warn("CA certificate file not found: %s", certPath);
+      }
+    }
+    return volumeMounts;
   }
 }

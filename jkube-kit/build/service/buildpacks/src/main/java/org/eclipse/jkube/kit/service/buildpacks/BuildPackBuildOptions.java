@@ -39,4 +39,5 @@ public class BuildPackBuildOptions {
   private Map<String, String> env;
   private List<String> volumes;
   private String path;
+  private List<String> caCerts;
 }

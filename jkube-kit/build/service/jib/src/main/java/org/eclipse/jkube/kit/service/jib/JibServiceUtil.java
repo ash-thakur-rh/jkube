@@ -48,6 +48,7 @@ import com.google.cloud.tools.jib.api.buildplan.ImageFormat;
 import com.google.cloud.tools.jib.api.buildplan.Port;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.eclipse.jkube.kit.config.image.build.util.CACertificateManager;
 
 import static com.google.cloud.tools.jib.api.buildplan.FileEntriesLayer.DEFAULT_FILE_PERMISSIONS_PROVIDER;
 
@@ -179,5 +180,38 @@ public class JibServiceUtil {
       fileEntriesLayers.add(fel.build());
     }
     return fileEntriesLayers;
+  }
+
+  /**
+   * Creates a CA certificate layer for Jib if CA certificates are configured.
+   * Note: Jib doesn't support RUN commands, so this only copies the certificate files.
+   * For full CA certificate installation including trust store updates, use Docker build strategy.
+   *
+   * @param buildConfiguration the build configuration
+   * @return Optional FileEntriesLayer containing CA certificates
+   */
+  public static Optional<FileEntriesLayer> createCaCertificateLayer(BuildConfiguration buildConfiguration) {
+    final List<String> caCerts = Optional.ofNullable(buildConfiguration)
+      .map(BuildConfiguration::getCaCerts)
+      .orElse(Collections.emptyList());
+
+    if (caCerts.isEmpty()) {
+      return Optional.empty();
+    }
+
+    final FileEntriesLayer.Builder layerBuilder = FileEntriesLayer.builder();
+    layerBuilder.setName("ca-certificates");
+
+    // Add certificate files to /tmp/certs directory
+    for (int i = 0; i < caCerts.size(); i++) {
+      String certPath = caCerts.get(i);
+      final Path sourcePath = new File(certPath).toPath();
+      // Use the same naming convention for the target path
+      String targetFileName = CACertificateManager.getCertificateFilenameInBuildContext(certPath, i);
+      final AbsoluteUnixPath targetPath = AbsoluteUnixPath.get("/tmp/certs/" + targetFileName);
+      layerBuilder.addEntry(sourcePath, targetPath, FilePermissions.fromOctalString("644"));
+    }
+
+    return Optional.of(layerBuilder.build());
   }
 }

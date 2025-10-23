@@ -140,6 +140,9 @@ public class JibService implements AutoCloseable {
         AssemblyManager.getAssemblyConfiguration(imageConfiguration.getBuildConfiguration(), configuration)
       );
       JibServiceUtil.layers(buildDirs, layers).forEach(from::addFileEntriesLayer);
+      // Add CA certificate layer if configured
+      JibServiceUtil.createCaCertificateLayer(imageConfiguration.getBuildConfiguration())
+        .ifPresent(from::addFileEntriesLayer);
       // TODO: Improve Assembly Manager so that the effective assemblyFileEntries computed can be properly shared
       // the call to AssemblyManager.getInstance().createDockerTarArchive should not be necessary,
       // files should be added using the AssemblyFileEntry list. AssemblyManager, should provide
