@@ -274,4 +274,61 @@ class SpringBootLayeredJarTest {
       return jarFile;
     }
   }
+
+  @Nested
+  @DisplayName("getExtractArgs")
+  class GetExtractArgs {
+    @BeforeEach
+    void setUp() {
+      springBootLayeredJar = new SpringBootLayeredJar(new File(projectDir, "test.jar"), new KitLogger.SilentLogger());
+    }
+
+    @Test
+    @DisplayName("with tools jarmode, should return extract with --layers flag")
+    void withToolsJarMode() {
+      // When
+      String[] result = springBootLayeredJar.getExtractArgs("tools");
+
+      // Then
+      assertThat(result)
+          .hasSize(2)
+          .containsExactly("extract", "--layers");
+    }
+
+    @Test
+    @DisplayName("with layertools jarmode, should return extract without flags")
+    void withLayerToolsJarMode() {
+      // When
+      String[] result = springBootLayeredJar.getExtractArgs("layertools");
+
+      // Then
+      assertThat(result)
+          .hasSize(1)
+          .containsExactly("extract");
+    }
+
+    @Test
+    @DisplayName("with null jarmode, should return extract without flags")
+    void withNullJarMode() {
+      // When
+      String[] result = springBootLayeredJar.getExtractArgs(null);
+
+      // Then
+      assertThat(result)
+          .hasSize(1)
+          .containsExactly("extract");
+    }
+
+    @Test
+    @DisplayName("with unknown jarmode, should return extract without flags")
+    void withUnknownJarMode() {
+      // When
+      String[] result = springBootLayeredJar.getExtractArgs("unknown");
+
+      // Then
+      assertThat(result)
+          .hasSize(1)
+          .containsExactly("extract");
+    }
+  }
 }

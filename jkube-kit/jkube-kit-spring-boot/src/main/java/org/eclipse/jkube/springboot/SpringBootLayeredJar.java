@@ -20,12 +20,15 @@ import org.eclipse.jkube.kit.common.KitLogger;
 import org.eclipse.jkube.kit.common.util.Serialization;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
@@ -99,22 +102,35 @@ public class SpringBootLayeredJar {
   }
 
   public void extractLayers(File extractionDir) {
+    // Try manual extraction first (works on any JDK)
+    try {
+      extractLayersManually(extractionDir);
+      kitLogger.info("Extracted Spring Boot layers using direct JAR extraction");
+      return;
+    } catch (Exception e) {
+      kitLogger.debug("Manual layer extraction failed, falling back to jarmode: %s", e.getMessage());
+    }
+
+    // Fallback: execute jarmode (requires compatible JDK)
     String jarMode = determineJarMode();
     if (jarMode != null) {
       try {
-        new LayerToolsCommand(kitLogger, extractionDir, layeredJar, jarMode, "extract").execute();
+        String[] extractArgs = getExtractArgs(jarMode);
+        new LayerToolsCommand(kitLogger, extractionDir, layeredJar, jarMode, extractArgs).execute();
+        kitLogger.info("Extracted Spring Boot layers using jarmode=%s", jarMode);
         return;
       } catch (IOException ioException) {
-        throw new IllegalStateException("Failure in extracting spring boot jar layers", ioException);
+        kitLogger.debug("Failed with jarmode=%s: %s", jarMode, ioException.getMessage());
       }
     }
 
-    // Fallback: try both jarmodes (tools first for forward compatibility)
+    // Final fallback: try both jarmodes
     IOException lastException = null;
     for (String fallbackJarMode : new String[]{"tools", "layertools"}) {
       try {
         kitLogger.debug("Trying jarmode=%s for layer extraction", fallbackJarMode);
-        new LayerToolsCommand(kitLogger, extractionDir, layeredJar, fallbackJarMode, "extract").execute();
+        String[] extractArgs = getExtractArgs(fallbackJarMode);
+        new LayerToolsCommand(kitLogger, extractionDir, layeredJar, fallbackJarMode, extractArgs).execute();
         return;
       } catch (IOException ioException) {
         kitLogger.debug("Failed with jarmode=%s: %s", fallbackJarMode, ioException.getMessage());
@@ -122,6 +138,15 @@ public class SpringBootLayeredJar {
       }
     }
     throw new IllegalStateException("Failure in extracting spring boot jar layers", lastException);
+  }
+
+  // Package-private for testing
+  String[] getExtractArgs(String jarMode) {
+    // tools jarmode requires --layers flag to produce layered directory structure
+    // layertools jarmode only supports extract command without flags
+    return "tools".equals(jarMode)
+        ? new String[]{"extract", "--layers"}
+        : new String[]{"extract"};
   }
 
   // Package-private for testing
@@ -149,6 +174,98 @@ public class SpringBootLayeredJar {
     } else if (version.isPresent()) {
       return "layertools";
     }
+    return null;
+  }
+
+  /**
+   * Manually extract layers by reading the JAR directly.
+   * This works on any JDK version, unlike jarmode execution which requires
+   * the same JDK version as the application's target.
+   */
+  private void extractLayersManually(File extractionDir) throws IOException {
+    try (JarFile jarFile = new JarFile(layeredJar)) {
+      // 1. Read layers.idx to get layer patterns
+      Map<String, List<String>> layerPatterns = readLayerPatterns(jarFile);
+
+      // 2. Create empty layer directories (even for layers with no files)
+      for (String layerName : layerPatterns.keySet()) {
+        new File(extractionDir, layerName).mkdirs();
+      }
+
+      // 3. Extract each JAR entry to the appropriate layer directory
+      java.util.Enumeration<JarEntry> entries = jarFile.entries();
+      while (entries.hasMoreElements()) {
+        JarEntry entry = entries.nextElement();
+
+        if (entry.isDirectory()) {
+          continue;
+        }
+
+        String layerName = findMatchingLayer(entry.getName(), layerPatterns);
+        if (layerName != null) {
+          File outputFile = new File(extractionDir, layerName + File.separator + entry.getName());
+          outputFile.getParentFile().mkdirs();
+
+          try (InputStream in = jarFile.getInputStream(entry);
+               FileOutputStream out = new FileOutputStream(outputFile)) {
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = in.read(buffer)) != -1) {
+              out.write(buffer, 0, bytesRead);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Read layers.idx and parse into a map of layer name to path patterns.
+   */
+  private Map<String, List<String>> readLayerPatterns(JarFile jarFile) throws IOException {
+    ZipEntry layersIdxEntry = jarFile.getEntry("BOOT-INF/layers.idx");
+    if (layersIdxEntry == null) {
+      throw new IOException("BOOT-INF/layers.idx not found in JAR");
+    }
+
+    List<Map<String, List<String>>> layers = Serialization.unmarshal(
+        jarFile.getInputStream(layersIdxEntry),
+        List.class
+    );
+
+    if (layers == null) {
+      throw new IOException("Unable to parse BOOT-INF/layers.idx");
+    }
+
+    // Convert list of maps to single map: layer name -> patterns
+    Map<String, List<String>> result = new LinkedHashMap<>();
+    for (Map<String, List<String>> layer : layers) {
+      result.putAll(layer);
+    }
+
+    return result;
+  }
+
+  /**
+   * Find which layer a JAR entry belongs to based on path patterns.
+   * Returns the layer name, or null if no match.
+   */
+  private String findMatchingLayer(String entryName, Map<String, List<String>> layerPatterns) {
+    for (Map.Entry<String, List<String>> layerEntry : layerPatterns.entrySet()) {
+      String layerName = layerEntry.getKey();
+      List<String> patterns = layerEntry.getValue();
+
+      if (patterns == null) {
+        continue;
+      }
+
+      for (String pattern : patterns) {
+        if (entryName.startsWith(pattern)) {
+          return layerName;
+        }
+      }
+    }
+
     return null;
   }
 
