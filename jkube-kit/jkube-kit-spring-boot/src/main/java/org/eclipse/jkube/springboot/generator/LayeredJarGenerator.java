@@ -24,7 +24,6 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.function.Function;
 
 import static org.eclipse.jkube.kit.common.util.FileUtil.getRelativePath;
