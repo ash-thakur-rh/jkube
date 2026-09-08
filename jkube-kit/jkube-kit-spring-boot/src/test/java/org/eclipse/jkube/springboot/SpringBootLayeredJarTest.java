@@ -283,16 +283,15 @@ class SpringBootLayeredJarTest {
       springBootLayeredJar = new SpringBootLayeredJar(new File(projectDir, "test.jar"), new KitLogger.SilentLogger());
     }
 
-    @Test
-    @DisplayName("with tools jarmode, should return extract with --layers flag")
+    @Test @DisplayName("with tools jarmode, should return extract with --launcher and --layers flag")
     void withToolsJarMode() {
       // When
       String[] result = springBootLayeredJar.getExtractArgs("tools");
 
       // Then
       assertThat(result)
-          .hasSize(2)
-          .containsExactly("extract", "--layers");
+          .hasSize(3)
+          .containsExactly("extract", "--launcher", "--layers");
     }
 
     @Test
