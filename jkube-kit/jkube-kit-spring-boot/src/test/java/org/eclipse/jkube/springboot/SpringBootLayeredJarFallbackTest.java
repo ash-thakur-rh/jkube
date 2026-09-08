@@ -14,6 +14,9 @@
 package org.eclipse.jkube.springboot;
 
 import org.eclipse.jkube.kit.common.KitLogger;
+
+import static org.eclipse.jkube.springboot.SpringBootLayeredJar.JARMODE_LAYERTOOLS;
+import static org.eclipse.jkube.springboot.SpringBootLayeredJar.JARMODE_TOOLS;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,6 +28,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
@@ -68,7 +72,7 @@ class SpringBootLayeredJarFallbackTest {
     // Then - verify fallback tried both jarmodes in correct order
     assertThat(springBootLayeredJar.attemptedJarModes)
       .as("Fallback should try 'tools' first (forward compatible), then 'layertools'")
-      .containsExactly("tools", "layertools");
+      .containsExactly(JARMODE_TOOLS, JARMODE_LAYERTOOLS);
   }
 
   @ParameterizedTest(name = "when version is {0}, should use {1} without fallback")
@@ -138,9 +142,7 @@ class SpringBootLayeredJarFallbackTest {
       }
 
       // Simulate fallback behavior
-      for (String fallbackJarMode : new String[]{"tools", "layertools"}) {
-        attemptedJarModes.add(fallbackJarMode);
-      }
+      Collections.addAll(attemptedJarModes, JARMODE_TOOLS, JARMODE_LAYERTOOLS);
       throw new IllegalStateException("Failure in extracting spring boot jar layers");
     }
   }

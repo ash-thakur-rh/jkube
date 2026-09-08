@@ -32,6 +32,9 @@ import java.util.zip.ZipEntry;
 
 public class SpringBootLayeredJar {
 
+  static final String JARMODE_TOOLS = "tools";
+  static final String JARMODE_LAYERTOOLS = "layertools";
+
   private final File layeredJar;
   private final KitLogger kitLogger;
 
@@ -115,7 +118,7 @@ public class SpringBootLayeredJar {
 
     // Fallback: try both jarmodes
     IOException lastException = null;
-    for (String fallbackJarMode : new String[]{"tools", "layertools"}) {
+    for (String fallbackJarMode : new String[]{JARMODE_TOOLS, JARMODE_LAYERTOOLS}) {
       try {
         kitLogger.debug("Trying jarmode=%s for layer extraction", fallbackJarMode);
         String[] extractArgs = getExtractArgs(fallbackJarMode);
@@ -134,7 +137,7 @@ public class SpringBootLayeredJar {
     // Spring Boot 4.x tools jarmode requires --launcher and --layers flags
     // to produce layered directory structure with spring-boot-loader classes included
     // layertools jarmode only supports extract command without flags
-    if ("tools".equals(jarMode)) {
+    if (JARMODE_TOOLS.equals(jarMode)) {
       return new String[]{"extract", "--launcher", "--layers"};
     } else {
       return new String[]{"extract"};
@@ -162,9 +165,9 @@ public class SpringBootLayeredJar {
   String determineJarMode() {
     Optional<String> version = getSpringBootVersion();
     if (version.isPresent() && isVersion330OrNewer(version.get())) {
-      return "tools";
+      return JARMODE_TOOLS;
     } else if (version.isPresent()) {
-      return "layertools";
+      return JARMODE_LAYERTOOLS;
     }
     return null;
   }

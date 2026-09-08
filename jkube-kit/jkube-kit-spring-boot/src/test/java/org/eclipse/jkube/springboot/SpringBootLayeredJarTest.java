@@ -294,11 +294,12 @@ class SpringBootLayeredJarTest {
           .containsExactly("extract", "--launcher", "--layers");
     }
 
-    @Test
-    @DisplayName("with layertools jarmode, should return extract without flags")
-    void withLayerToolsJarMode() {
+    @ParameterizedTest(name = "with ''{0}'' jarmode, should return extract without flags")
+    @ValueSource(strings = {"layertools", "unknown"})
+    @DisplayName("with non-tools jarmode")
+    void withNonToolsJarMode(String jarMode) {
       // When
-      String[] result = springBootLayeredJar.getExtractArgs("layertools");
+      String[] result = springBootLayeredJar.getExtractArgs(jarMode);
 
       // Then
       assertThat(result)
@@ -311,18 +312,6 @@ class SpringBootLayeredJarTest {
     void withNullJarMode() {
       // When
       String[] result = springBootLayeredJar.getExtractArgs(null);
-
-      // Then
-      assertThat(result)
-          .hasSize(1)
-          .containsExactly("extract");
-    }
-
-    @Test
-    @DisplayName("with unknown jarmode, should return extract without flags")
-    void withUnknownJarMode() {
-      // When
-      String[] result = springBootLayeredJar.getExtractArgs("unknown");
 
       // Then
       assertThat(result)

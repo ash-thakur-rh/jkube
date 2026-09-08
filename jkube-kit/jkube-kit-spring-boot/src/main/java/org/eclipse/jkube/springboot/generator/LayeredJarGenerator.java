@@ -30,6 +30,8 @@ import static org.eclipse.jkube.kit.common.util.FileUtil.getRelativePath;
 
 public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
 
+  private static final String DEPENDENCIES_LAYER = "dependencies";
+
   private final SpringBootLayeredJar springBootLayeredJar;
   private final File layeredJar;
 
@@ -85,7 +87,7 @@ public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
    */
   private File findLayerBaseDirectory(File buildPackageDirectory) {
     // Check if layers exist directly in buildPackageDirectory (layertools behavior)
-    if (new File(buildPackageDirectory, "dependencies").exists()) {
+    if (new File(buildPackageDirectory, DEPENDENCIES_LAYER).exists()) {
       return buildPackageDirectory;
     }
 
@@ -94,7 +96,7 @@ public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
     String jarBaseName = getJarBaseName(layeredJar);
     if (jarBaseName != null) {
       File expectedSubdir = new File(buildPackageDirectory, jarBaseName);
-      if (expectedSubdir.isDirectory() && new File(expectedSubdir, "dependencies").exists()) {
+      if (expectedSubdir.isDirectory() && new File(expectedSubdir, DEPENDENCIES_LAYER).exists()) {
         getLogger().debug("Found layers in artifact-specific subdirectory: %s", jarBaseName);
         return expectedSubdir;
       }
@@ -104,7 +106,7 @@ public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
     File[] subdirs = buildPackageDirectory.listFiles(File::isDirectory);
     if (subdirs != null) {
       for (File subdir : subdirs) {
-        if (new File(subdir, "dependencies").exists()) {
+        if (new File(subdir, DEPENDENCIES_LAYER).exists()) {
           getLogger().debug("Found layers in subdirectory: %s", subdir.getName());
           return subdir;
         }
