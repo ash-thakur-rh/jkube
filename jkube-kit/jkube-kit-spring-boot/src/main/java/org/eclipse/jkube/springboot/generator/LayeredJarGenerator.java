@@ -69,25 +69,6 @@ public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
     for (String springBootLayer : springBootLayeredJar.listLayers()) {
       File layerDir = new File(layerBaseDir, springBootLayer);
 
-      // Validate layer directory exists
-      if (!layerDir.exists() || !layerDir.isDirectory()) {
-        getLogger().error("Layer directory does not exist: %s", layerDir.getAbsolutePath());
-        getLogger().error("Build package directory: %s", buildPackageDirectory.getAbsolutePath());
-        getLogger().error("Layer base directory: %s", layerBaseDir.getAbsolutePath());
-        if (buildPackageDirectory.exists()) {
-          getLogger().error("Contents of build package directory: %s",
-              String.join(", ", buildPackageDirectory.list() != null ?
-                Objects.requireNonNull(buildPackageDirectory.list()) : new String[]{"<empty>"}));
-        }
-        throw new IllegalStateException(String.format(
-            "Spring Boot layer directory '%s' does not exist. " +
-            "Layers were expected in: %s. " +
-            "This may indicate a mismatch between where layers were extracted and where they are being referenced.",
-            layerDir.getAbsolutePath(),
-            layerBaseDir.getAbsolutePath()
-        ));
-      }
-
       layerAssemblies.add(Assembly.builder()
               .id(springBootLayer)
               .fileSet(AssemblyFileSet.builder()
