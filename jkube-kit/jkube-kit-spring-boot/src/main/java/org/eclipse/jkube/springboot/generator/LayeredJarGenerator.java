@@ -31,9 +31,11 @@ import static org.eclipse.jkube.kit.common.util.FileUtil.getRelativePath;
 public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
 
   private final SpringBootLayeredJar springBootLayeredJar;
+  private final File layeredJar;
 
   public LayeredJarGenerator(GeneratorContext generatorContext, GeneratorConfig generatorConfig, File layeredJar) {
     super(generatorContext, generatorConfig);
+    this.layeredJar = layeredJar;
     springBootLayeredJar = new SpringBootLayeredJar(layeredJar, getLogger());
   }
 
@@ -87,7 +89,18 @@ public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
       return buildPackageDirectory;
     }
 
-    // Look for subdirectory containing layers (tools jarmode behavior)
+    // Try to find subdirectory based on jar artifact name (tools jarmode behavior)
+    // e.g., myapp-1.0.0.jar extracts to myapp-1.0.0/dependencies, myapp-1.0.0/spring-boot-loader, etc.
+    String jarBaseName = getJarBaseName(layeredJar);
+    if (jarBaseName != null) {
+      File expectedSubdir = new File(buildPackageDirectory, jarBaseName);
+      if (expectedSubdir.isDirectory() && new File(expectedSubdir, "dependencies").exists()) {
+        getLogger().debug("Found layers in artifact-specific subdirectory: %s", jarBaseName);
+        return expectedSubdir;
+      }
+    }
+
+    // Fallback: search all subdirectories for layers
     File[] subdirs = buildPackageDirectory.listFiles(File::isDirectory);
     if (subdirs != null) {
       for (File subdir : subdirs) {
@@ -100,5 +113,18 @@ public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
 
     // Default to buildPackageDirectory if no layers found
     return buildPackageDirectory;
+  }
+
+  /**
+   * Get the jar base name without extension.
+   * e.g., "myapp-1.0.0.jar" → "myapp-1.0.0"
+   */
+  private String getJarBaseName(File jar) {
+    if (jar == null) {
+      return null;
+    }
+    String name = jar.getName();
+    int lastDot = name.lastIndexOf('.');
+    return lastDot > 0 ? name.substring(0, lastDot) : name;
   }
 }

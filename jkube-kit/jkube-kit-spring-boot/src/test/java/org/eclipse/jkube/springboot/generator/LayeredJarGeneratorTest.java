@@ -315,6 +315,54 @@ class LayeredJarGeneratorTest {
     }
 
     @Test
+    @DisplayName("should prioritize jar-basename subdirectory (Spring Boot 3.3+ tools jarmode)")
+    void shouldPrioritizeJarBasenameSubdirectory() throws IOException {
+      // Given - Jar named "my-app-1.0.0.jar"
+      File layeredJar = createLayeredJarWithName("my-app-1.0.0.jar");
+
+      // Create the expected subdirectory based on jar name (without .jar extension)
+      File expectedSubdir = Files.createDirectory(targetDir.toPath().resolve("my-app-1.0.0")).toFile();
+      createLayerDirectories(expectedSubdir);
+
+      // Also create another subdirectory with layers to test prioritization
+      File otherSubdir = Files.createDirectory(targetDir.toPath().resolve("other-dir")).toFile();
+      createLayerDirectories(otherSubdir);
+
+      LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
+
+      // When
+      AssemblyConfiguration config = generator.createAssemblyConfiguration(Collections.emptyList());
+
+      // Then - Should find layers in jar-basename subdirectory
+      assertThat(config.getLayers())
+          .hasSizeGreaterThan(1)
+          .extracting(Assembly::getId)
+          .contains("dependencies", "application");
+    }
+
+    @Test
+    @DisplayName("should fallback to subdirectory search when jar-basename subdir not found")
+    void shouldFallbackWhenJarBasenameSubdirNotFound() throws IOException {
+      // Given - Jar named "my-app.jar" but subdirectory has different name
+      File layeredJar = createLayeredJarWithName("my-app.jar");
+
+      // Create subdirectory with different name than jar basename
+      File actualSubdir = Files.createDirectory(targetDir.toPath().resolve("build-output")).toFile();
+      createLayerDirectories(actualSubdir);
+
+      LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
+
+      // When
+      AssemblyConfiguration config = generator.createAssemblyConfiguration(Collections.emptyList());
+
+      // Then - Should still find layers via fallback search
+      assertThat(config.getLayers())
+          .hasSizeGreaterThan(1)
+          .extracting(Assembly::getId)
+          .contains("dependencies", "application");
+    }
+
+    @Test
     @DisplayName("when no dependencies directory found, should default to buildPackageDirectory")
     void whenNoDependenciesFound_shouldDefaultToBuildPackageDirectory() throws IOException {
       // Given
@@ -438,6 +486,15 @@ class LayeredJarGeneratorTest {
 
   private File createRealLayeredJar() throws IOException {
     File jarFile = new File(tempDir.toFile(), "layered.jar");
+    Files.copy(
+        Objects.requireNonNull(getClass().getResourceAsStream("/generator-integration-test/layered-jar.jar")),
+        jarFile.toPath()
+    );
+    return jarFile;
+  }
+
+  private File createLayeredJarWithName(String jarName) throws IOException {
+    File jarFile = new File(tempDir.toFile(), jarName);
     Files.copy(
         Objects.requireNonNull(getClass().getResourceAsStream("/generator-integration-test/layered-jar.jar")),
         jarFile.toPath()
