@@ -330,4 +330,133 @@ class SpringBootLayeredJarTest {
           .containsExactly("extract");
     }
   }
+
+  @Nested
+  @DisplayName("isLayeredJar edge cases")
+  class IsLayeredJarEdgeCases {
+    @Test
+    @DisplayName("with blank main class, should return false")
+    void withBlankMainClass() throws IOException {
+      // Given
+      final File jarFile = createJarWithBlankMainClass();
+      springBootLayeredJar = new SpringBootLayeredJar(jarFile, new KitLogger.SilentLogger());
+
+      // When
+      final boolean result = springBootLayeredJar.isLayeredJar();
+
+      // Then
+      assertThat(result).isFalse();
+    }
+
+    @Test
+    @DisplayName("with layers.idx but no manifest, should return false")
+    void withLayersButNoManifest() throws IOException {
+      // Given
+      final File jarFile = new File(projectDir, "no-manifest.jar");
+      try (JarOutputStream jarOutputStream = new JarOutputStream(Files.newOutputStream(jarFile.toPath()))) {
+        jarOutputStream.putNextEntry(new JarEntry("BOOT-INF/layers.idx"));
+        jarOutputStream.write("- \"dependencies\":\n  - \"BOOT-INF/lib/\"\n".getBytes());
+      }
+      springBootLayeredJar = new SpringBootLayeredJar(jarFile, new KitLogger.SilentLogger());
+
+      // When
+      final boolean result = springBootLayeredJar.isLayeredJar();
+
+      // Then
+      assertThat(result).isFalse();
+    }
+
+    @Test
+    @DisplayName("with main class but no layers.idx, should return false")
+    void withMainClassButNoLayers() throws IOException {
+      // Given
+      final File jarFile = new File(projectDir, "no-layers.jar");
+      final Manifest manifest = new Manifest();
+      manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+      manifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS, "org.springframework.boot.loader.JarLauncher");
+      try (JarOutputStream jarOutputStream = new JarOutputStream(Files.newOutputStream(jarFile.toPath()), manifest)) {
+        // No layers.idx entry
+      }
+      springBootLayeredJar = new SpringBootLayeredJar(jarFile, new KitLogger.SilentLogger());
+
+      // When
+      final boolean result = springBootLayeredJar.isLayeredJar();
+
+      // Then
+      assertThat(result).isFalse();
+    }
+
+    private File createJarWithBlankMainClass() throws IOException {
+      final File jarFile = new File(projectDir, "blank-main.jar");
+      final Manifest manifest = new Manifest();
+      manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+      manifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS, "   "); // Blank spaces
+      try (JarOutputStream jarOutputStream = new JarOutputStream(Files.newOutputStream(jarFile.toPath()), manifest)) {
+        jarOutputStream.putNextEntry(new JarEntry("BOOT-INF/layers.idx"));
+      }
+      return jarFile;
+    }
+  }
+
+  @Nested
+  @DisplayName("listLayers edge cases")
+  class ListLayersEdgeCases {
+    @Test
+    @DisplayName("with complex layer structure, should parse all layers")
+    void withComplexLayerStructure() throws IOException {
+      // Given
+      final File jarFile = createJarWithComplexLayers();
+      springBootLayeredJar = new SpringBootLayeredJar(jarFile, new KitLogger.SilentLogger());
+
+      // When
+      final List<String> result = springBootLayeredJar.listLayers();
+
+      // Then
+      assertThat(result)
+          .containsExactly("dependencies", "spring-boot-loader", "snapshot-dependencies", "application", "custom-layer");
+    }
+
+    @Test
+    @DisplayName("with empty layers.idx, should throw exception")
+    void withEmptyLayersIdx() throws IOException {
+      // Given
+      final File jarFile = createJarWithEmptyLayersIdx();
+      springBootLayeredJar = new SpringBootLayeredJar(jarFile, new KitLogger.SilentLogger());
+
+      // When & Then
+      assertThatIllegalStateException()
+          .isThrownBy(() -> springBootLayeredJar.listLayers())
+          .withMessageContaining("Failure in getting spring boot jar layers information");
+    }
+
+    private File createJarWithComplexLayers() throws IOException {
+      final File jarFile = new File(projectDir, "complex-layers.jar");
+      final Manifest manifest = new Manifest();
+      manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+      manifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS, "org.springframework.boot.loader.JarLauncher");
+      try (JarOutputStream jarOutputStream = new JarOutputStream(Files.newOutputStream(jarFile.toPath()), manifest)) {
+        jarOutputStream.putNextEntry(new JarEntry("BOOT-INF/layers.idx"));
+        String layersContent = "- \"dependencies\":\n  - \"BOOT-INF/lib/\"\n" +
+                              "- \"spring-boot-loader\":\n  - \"org/\"\n" +
+                              "- \"snapshot-dependencies\":\n  - \"BOOT-INF/lib/snapshot/\"\n" +
+                              "- \"application\":\n  - \"BOOT-INF/classes/\"\n  - \"META-INF/\"\n" +
+                              "- \"custom-layer\":\n  - \"custom/\"\n";
+        jarOutputStream.write(layersContent.getBytes());
+      }
+      return jarFile;
+    }
+
+    private File createJarWithEmptyLayersIdx() throws IOException {
+      final File jarFile = new File(projectDir, "empty-layers.jar");
+      final Manifest manifest = new Manifest();
+      manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+      manifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS, "org.springframework.boot.loader.JarLauncher");
+      try (JarOutputStream jarOutputStream = new JarOutputStream(Files.newOutputStream(jarFile.toPath()), manifest)) {
+        jarOutputStream.putNextEntry(new JarEntry("BOOT-INF/layers.idx"));
+        // Write empty content
+        jarOutputStream.write("".getBytes());
+      }
+      return jarFile;
+    }
+  }
 }
