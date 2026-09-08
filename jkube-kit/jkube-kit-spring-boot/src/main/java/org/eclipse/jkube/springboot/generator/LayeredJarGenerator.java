@@ -24,6 +24,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 
 import static org.eclipse.jkube.kit.common.util.FileUtil.getRelativePath;
@@ -53,16 +54,40 @@ public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
     getLogger().info("Spring Boot layered jar detected");
     final List<Assembly> layerAssemblies = new ArrayList<>();
     layerAssemblies.add(Assembly.builder().id("jkube-includes").fileSets(defaultFileSets).build());
-    springBootLayeredJar.extractLayers(getProject().getBuildPackageDirectory());
+
+    File buildPackageDirectory = getProject().getBuildPackageDirectory();
+    getLogger().info("Build package directory: %s", buildPackageDirectory.getAbsolutePath());
+    springBootLayeredJar.extractLayers(buildPackageDirectory);
 
     // tools jarmode extracts to <jar-basename>/<layer> subdirectory structure
     // layertools jarmode extracts directly to <layer> directories
-    File layerBaseDir = findLayerBaseDirectory(getProject().getBuildPackageDirectory());
+    File layerBaseDir = findLayerBaseDirectory(buildPackageDirectory);
+    getLogger().info("Layer base directory: %s", layerBaseDir.getAbsolutePath());
 
     // Each layer gets its own Assembly for Docker layer caching
     // but all files go to the same targetDir (flat runtime structure)
     for (String springBootLayer : springBootLayeredJar.listLayers()) {
       File layerDir = new File(layerBaseDir, springBootLayer);
+
+      // Validate layer directory exists
+      if (!layerDir.exists() || !layerDir.isDirectory()) {
+        getLogger().error("Layer directory does not exist: %s", layerDir.getAbsolutePath());
+        getLogger().error("Build package directory: %s", buildPackageDirectory.getAbsolutePath());
+        getLogger().error("Layer base directory: %s", layerBaseDir.getAbsolutePath());
+        if (buildPackageDirectory.exists()) {
+          getLogger().error("Contents of build package directory: %s",
+              String.join(", ", buildPackageDirectory.list() != null ?
+                Objects.requireNonNull(buildPackageDirectory.list()) : new String[]{"<empty>"}));
+        }
+        throw new IllegalStateException(String.format(
+            "Spring Boot layer directory '%s' does not exist. " +
+            "Layers were expected in: %s. " +
+            "This may indicate a mismatch between where layers were extracted and where they are being referenced.",
+            layerDir.getAbsolutePath(),
+            layerBaseDir.getAbsolutePath()
+        ));
+      }
+
       layerAssemblies.add(Assembly.builder()
               .id(springBootLayer)
               .fileSet(AssemblyFileSet.builder()
