@@ -370,6 +370,7 @@ class SpringBootGeneratorIntegrationTest {
             .fileSet(AssemblyFileSet.builder()
               .outputDirectory(new File("."))
               .directory(new File("target/dependencies"))
+              .exclude("*")
               .fileMode("0640")
               .build())
             .build(),
@@ -378,6 +379,7 @@ class SpringBootGeneratorIntegrationTest {
             .fileSet(AssemblyFileSet.builder()
               .outputDirectory(new File("."))
               .directory(new File("target/spring-boot-loader"))
+              .exclude("*")
               .fileMode("0640")
               .build())
             .build(),
@@ -386,6 +388,7 @@ class SpringBootGeneratorIntegrationTest {
             .fileSet(AssemblyFileSet.builder()
               .outputDirectory(new File("."))
               .directory(new File("target/snapshot-dependencies"))
+              .exclude("*")
               .fileMode("0640")
               .build())
             .build(),
@@ -394,6 +397,7 @@ class SpringBootGeneratorIntegrationTest {
             .fileSet(AssemblyFileSet.builder()
               .outputDirectory(new File("."))
               .directory(new File("target/application"))
+              .exclude("*")
               .fileMode("0640")
               .build())
             .build()

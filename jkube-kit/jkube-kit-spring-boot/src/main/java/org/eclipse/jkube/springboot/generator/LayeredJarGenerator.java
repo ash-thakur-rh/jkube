@@ -73,6 +73,7 @@ public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
               .fileSet(AssemblyFileSet.builder()
                   .directory(getRelativePath(getProject().getBaseDirectory(), layerDir))
                   .outputDirectory(new File("."))  // Flat: all layers → /deployments
+                  .exclude("*")
                   .fileMode("0640")
                   .build())
           .build());
