@@ -262,6 +262,13 @@ class LayeredJarGeneratorTest {
           .hasSizeGreaterThan(1) // jkube-includes + actual layers
           .extracting(Assembly::getId)
           .contains("dependencies", "application");
+
+      // And - Verify the actual directory paths (this is what the PR review requested)
+      assertThat(config.getLayers())
+          .filteredOn(assembly -> assembly.getId().equals("dependencies"))
+          .flatExtracting(Assembly::getFileSets)
+          .extracting(AssemblyFileSet::getDirectory)
+          .allMatch(dir -> dir.getPath().endsWith("dependencies"));
     }
 
     @Test

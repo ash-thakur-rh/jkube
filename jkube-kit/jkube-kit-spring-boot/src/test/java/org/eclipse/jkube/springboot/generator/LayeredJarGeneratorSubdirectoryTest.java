@@ -17,6 +17,7 @@ import org.eclipse.jkube.generator.api.GeneratorConfig;
 import org.eclipse.jkube.generator.api.GeneratorContext;
 import org.eclipse.jkube.kit.common.Assembly;
 import org.eclipse.jkube.kit.common.AssemblyConfiguration;
+import org.eclipse.jkube.kit.common.AssemblyFileSet;
 import org.eclipse.jkube.kit.common.JavaProject;
 import org.eclipse.jkube.kit.common.KitLogger;
 import org.eclipse.jkube.springboot.SpringBootLayeredJar;
@@ -119,6 +120,15 @@ class LayeredJarGeneratorSubdirectoryTest {
           .hasSizeGreaterThan(1) // jkube-includes + actual layers
           .extracting(Assembly::getId)
           .contains("dependencies", "spring-boot-loader", "snapshot-dependencies", "application");
+
+      // And - Verify the actual directory paths point to the subdirectory (this is what the PR review requested)
+      assertThat(config.getLayers())
+          .filteredOn(assembly -> assembly.getId().equals("dependencies"))
+          .flatExtracting(Assembly::getFileSets)
+          .first()
+          .extracting("directory.path")
+          .asString()
+          .contains("test-app-1.0.0", "dependencies");
     }
   }
 
@@ -155,6 +165,15 @@ class LayeredJarGeneratorSubdirectoryTest {
           .hasSizeGreaterThan(1)
           .extracting(Assembly::getId)
           .contains("dependencies", "application");
+
+      // And - Verify the actual directory paths point to app-1.0.0 subdirectory
+      assertThat(config.getLayers())
+          .filteredOn(assembly -> assembly.getId().equals("dependencies"))
+          .flatExtracting(Assembly::getFileSets)
+          .first()
+          .extracting("directory.path")
+          .asString()
+          .contains("app-1.0.0", "dependencies");
     }
   }
 

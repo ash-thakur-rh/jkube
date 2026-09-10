@@ -55,13 +55,12 @@ public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
     layerAssemblies.add(Assembly.builder().id("jkube-includes").fileSets(defaultFileSets).build());
 
     File buildPackageDirectory = getProject().getBuildPackageDirectory();
-    getLogger().info("Build package directory: %s", buildPackageDirectory.getAbsolutePath());
+    getLogger().debug("Build package directory: %s", buildPackageDirectory.getAbsolutePath());
     springBootLayeredJar.extractLayers(buildPackageDirectory);
 
-    // tools jarmode extracts to <jar-basename>/<layer> subdirectory structure
-    // layertools jarmode extracts directly to <layer> directories
+    // With --destination . and --force flags, layers are always extracted directly to buildPackageDirectory
     File layerBaseDir = findLayerBaseDirectory(buildPackageDirectory);
-    getLogger().info("Layer base directory: %s", layerBaseDir.getAbsolutePath());
+    getLogger().debug("Layer base directory: %s", layerBaseDir.getAbsolutePath());
 
     // Each layer gets its own Assembly for Docker layer caching
     // but all files go to the same targetDir (flat runtime structure)
@@ -88,31 +87,39 @@ public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
 
   /**
    * Find the base directory containing layer subdirectories.
-   * tools jarmode extracts to <jar-basename>/<layer> structure,
-   * while layertools jarmode extracts directly to <layer> directories.
+   * With --destination . flag, layers are extracted directly to buildPackageDirectory.
    */
   private File findLayerBaseDirectory(File buildPackageDirectory) {
-    // Check if layers exist directly in buildPackageDirectory (layertools behavior)
-    if (new File(buildPackageDirectory, DEPENDENCIES_LAYER).exists()) {
+    // Get the first layer name from the actual jar (supports custom layers.xml)
+    List<String> layers = springBootLayeredJar.listLayers();
+    if (layers.isEmpty()) {
+      getLogger().warn("No layers found in Spring Boot jar");
       return buildPackageDirectory;
     }
 
-    // Try to find subdirectory based on jar artifact name (tools jarmode behavior)
-    // e.g., myapp-1.0.0.jar extracts to myapp-1.0.0/dependencies, myapp-1.0.0/spring-boot-loader, etc.
+    String firstLayer = layers.get(0);
+
+    // Check if layers exist directly in buildPackageDirectory (standard with --destination .)
+    if (new File(buildPackageDirectory, firstLayer).exists()) {
+      return buildPackageDirectory;
+    }
+
+    // Fallback: Try to find subdirectory based on jar artifact name
+    // (in case --destination flag is not supported by older Spring Boot versions)
     String jarBaseName = getJarBaseName(layeredJar);
     if (jarBaseName != null) {
       File expectedSubdir = new File(buildPackageDirectory, jarBaseName);
-      if (expectedSubdir.isDirectory() && new File(expectedSubdir, DEPENDENCIES_LAYER).exists()) {
+      if (expectedSubdir.isDirectory() && new File(expectedSubdir, firstLayer).exists()) {
         getLogger().debug("Found layers in artifact-specific subdirectory: %s", jarBaseName);
         return expectedSubdir;
       }
     }
 
-    // Fallback: search all subdirectories for layers
+    // Last resort: search all subdirectories for the first layer
     File[] subdirs = buildPackageDirectory.listFiles(File::isDirectory);
     if (subdirs != null) {
       for (File subdir : subdirs) {
-        if (new File(subdir, DEPENDENCIES_LAYER).exists()) {
+        if (new File(subdir, firstLayer).exists()) {
           getLogger().debug("Found layers in subdirectory: %s", subdir.getName());
           return subdir;
         }
@@ -120,6 +127,7 @@ public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
     }
 
     // Default to buildPackageDirectory if no layers found
+    getLogger().warn("Could not find layer directories, using buildPackageDirectory as fallback");
     return buildPackageDirectory;
   }
 

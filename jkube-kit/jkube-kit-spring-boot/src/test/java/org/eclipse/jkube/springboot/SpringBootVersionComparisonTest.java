@@ -38,34 +38,32 @@ class SpringBootVersionComparisonTest {
 
   private SpringBootLayeredJar springBootLayeredJar;
 
-  @ParameterizedTest(name = "version {0} should return {1} for isVersion330OrNewer")
+  @ParameterizedTest(name = "version {0} should return {1} for isVersion410OrNewer")
   @CsvSource({
     "2.7.14, false",
     "3.0.0, false",
     "3.2.0, false",
     "3.2.9, false",
-    "3.3.0, true",
-    "3.3.1, true",
-    "3.4.0, true",
-    "3.10.5, true",
-    "4.0.0, true",
+    "3.3.0, false",
+    "3.3.1, false",
+    "3.4.0, false",
+    "3.10.5, false",
+    "4.0.0, false",
+    "4.0.8, false",
     "4.1.0, true",
     "4.1.0-M1, true",
     "4.1.0-SNAPSHOT, true",
-    "3.3.0-M1, true",
-    "3.2.9-SNAPSHOT, false",
     "4.1.1, true",
     "5.0.0, true",
     "10.0.0, true"
   })
   @DisplayName("version comparison")
-  void versionComparison(String version, boolean expected) throws Exception {
-    // Given
-    final File jarFile = createJarWithVersion(version);
-    springBootLayeredJar = new SpringBootLayeredJar(jarFile, new KitLogger.SilentLogger());
+  void versionComparison(String version, boolean expected) {
+    // Given - jar file not needed, version string is parsed directly
+    springBootLayeredJar = new SpringBootLayeredJar(new File(projectDir, "test.jar"), new KitLogger.SilentLogger());
 
     // When
-    boolean result = springBootLayeredJar.isVersion330OrNewer(version);
+    boolean result = springBootLayeredJar.isVersion410OrNewer(version);
 
     // Then
     assertThat(result).isEqualTo(expected);
@@ -78,7 +76,7 @@ class SpringBootVersionComparisonTest {
     springBootLayeredJar = new SpringBootLayeredJar(new File(projectDir, "test.jar"), new KitLogger.SilentLogger());
 
     // When
-    boolean result = springBootLayeredJar.isVersion330OrNewer("invalid");
+    boolean result = springBootLayeredJar.isVersion410OrNewer("invalid");
 
     // Then
     assertThat(result).isFalse();
@@ -91,7 +89,20 @@ class SpringBootVersionComparisonTest {
     springBootLayeredJar = new SpringBootLayeredJar(new File(projectDir, "test.jar"), new KitLogger.SilentLogger());
 
     // When
-    boolean result = springBootLayeredJar.isVersion330OrNewer("3");
+    boolean result = springBootLayeredJar.isVersion410OrNewer("3");
+
+    // Then
+    assertThat(result).isFalse();
+  }
+
+  @Test
+  @DisplayName("with version containing non-numeric minor, should return false and log debug")
+  void withNonNumericMinor() {
+    // Given
+    springBootLayeredJar = new SpringBootLayeredJar(new File(projectDir, "test.jar"), new KitLogger.SilentLogger());
+
+    // When - This hits the NumberFormatException catch block
+    boolean result = springBootLayeredJar.isVersion410OrNewer("3.x");
 
     // Then
     assertThat(result).isFalse();
@@ -101,9 +112,13 @@ class SpringBootVersionComparisonTest {
   @CsvSource({
     "2.7.14, layertools",
     "3.2.9, layertools",
-    "3.3.0, tools",
+    "3.3.0, layertools",
+    "3.4.0, layertools",
+    "4.0.8, layertools",
     "4.1.0, tools",
-    "4.1.0-M1, tools"
+    "4.1.0-M1, tools",
+    "4.1.1, tools",
+    "5.0.0, tools"
   })
   @DisplayName("determineJarMode with valid version")
   void determineJarModeWithValidVersion(String version, String expectedJarMode) throws IOException {
@@ -133,13 +148,14 @@ class SpringBootVersionComparisonTest {
   }
 
   private File createJarWithVersion(String version) throws IOException {
-    final File jarFile = new File(projectDir, "spring-boot-" + version + ".jar");
+    final File jarFile = new File(projectDir, "spring-boot-" + version.replaceAll("[^0-9.]", "-") + ".jar");
     final Manifest manifest = new Manifest();
     manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
     manifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS, "org.springframework.boot.loader.JarLauncher");
     manifest.getMainAttributes().putValue("Spring-Boot-Version", version);
     try (JarOutputStream jarOutputStream = new JarOutputStream(Files.newOutputStream(jarFile.toPath()), manifest)) {
       jarOutputStream.putNextEntry(new JarEntry("BOOT-INF/layers.idx"));
+      jarOutputStream.write("- \"dependencies\":\n  - \"BOOT-INF/lib/\"\n".getBytes());
     }
     return jarFile;
   }

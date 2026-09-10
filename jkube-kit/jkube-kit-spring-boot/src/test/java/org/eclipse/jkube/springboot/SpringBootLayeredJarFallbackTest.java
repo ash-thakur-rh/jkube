@@ -78,8 +78,10 @@ class SpringBootLayeredJarFallbackTest {
   @ParameterizedTest(name = "when version is {0}, should use {1} without fallback")
   @CsvSource({
     "2.7.14, layertools",
-    "3.3.0, tools",
-    "4.1.0, tools"
+    "3.3.0, layertools",
+    "4.0.8, layertools",
+    "4.1.0, tools",
+    "4.1.1, tools"
   })
   @DisplayName("with valid version")
   void whenValidVersion_shouldUseCorrectJarmodeWithoutFallback(String version, String expectedJarMode) throws IOException {
@@ -92,6 +94,7 @@ class SpringBootLayeredJarFallbackTest {
       .isInstanceOf(IllegalStateException.class);
 
     // Then - verify only the expected jarmode was tried (no fallback)
+    // NOTE: This test only verifies determineJarMode() logic since extractLayers() is overridden
     assertThat(springBootLayeredJar.attemptedJarModes)
       .as("Spring Boot %s should use '%s' directly, no fallback", version, expectedJarMode)
       .containsExactly(expectedJarMode);

@@ -186,7 +186,7 @@ class SpringBootLayeredJarTest {
   @DisplayName("getSpringBootVersion")
   class GetSpringBootVersion {
     @ParameterizedTest(name = "with Spring Boot {0} jar, should return version")
-    @ValueSource(strings = {"2.7.14", "3.3.0", "4.1.0"})
+    @ValueSource(strings = {"2.7.14", "3.2.0", "3.3.0", "4.1.0"})
     @DisplayName("with valid version")
     void withValidVersion(String version) throws IOException {
       // Given
@@ -246,36 +246,6 @@ class SpringBootLayeredJarTest {
   }
 
   @Nested
-  @DisplayName("extractLayers with version-specific jarmode")
-  class ExtractLayersWithJarMode {
-    @ParameterizedTest(name = "with Spring Boot {0}, should detect version")
-    @ValueSource(strings = {"2.7.14", "3.2.0", "3.3.0", "4.1.0"})
-    @DisplayName("with valid version")
-    void withValidVersion(String version) throws IOException {
-      // Given
-      final File jarFile = createExecutableJarWithVersion(version);
-      springBootLayeredJar = new SpringBootLayeredJar(jarFile, new KitLogger.SilentLogger());
-
-      // When & Then - would fail if wrong jarmode is used, but we can't easily test subprocess execution
-      // The real test is in the integration tests with actual Spring Boot jars
-      assertThat(springBootLayeredJar.getSpringBootVersion()).hasValue(version);
-    }
-
-    private File createExecutableJarWithVersion(String version) throws IOException {
-      final File jarFile = new File(projectDir, "executable-" + version + ".jar");
-      final Manifest manifest = new Manifest();
-      manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
-      manifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS, "org.springframework.boot.loader.JarLauncher");
-      manifest.getMainAttributes().putValue("Spring-Boot-Version", version);
-      try (JarOutputStream jarOutputStream = new JarOutputStream(Files.newOutputStream(jarFile.toPath()), manifest)) {
-        jarOutputStream.putNextEntry(new JarEntry("BOOT-INF/layers.idx"));
-        jarOutputStream.write("- \"dependencies\":\n  - \"BOOT-INF/lib/\"\n".getBytes());
-      }
-      return jarFile;
-    }
-  }
-
-  @Nested
   @DisplayName("getExtractArgs")
   class GetExtractArgs {
     @BeforeEach
@@ -283,40 +253,41 @@ class SpringBootLayeredJarTest {
       springBootLayeredJar = new SpringBootLayeredJar(new File(projectDir, "test.jar"), new KitLogger.SilentLogger());
     }
 
-    @Test @DisplayName("with tools jarmode, should return extract with --launcher and --layers flag")
+    @Test
+    @DisplayName("with tools jarmode, should return extract with --launcher, --layers, --destination, and --force flags")
     void withToolsJarMode() {
       // When
       String[] result = springBootLayeredJar.getExtractArgs("tools");
 
-      // Then
+      // Then - Verify all required flags for idempotent extraction
       assertThat(result)
-          .hasSize(3)
-          .containsExactly("extract", "--launcher", "--layers");
+          .hasSize(6)
+          .containsExactly("extract", "--launcher", "--layers", "--destination", ".", "--force");
     }
 
-    @ParameterizedTest(name = "with ''{0}'' jarmode, should return extract without flags")
+    @ParameterizedTest(name = "with ''{0}'' jarmode, should return extract with --destination (no --force for layertools)")
     @ValueSource(strings = {"layertools", "unknown"})
     @DisplayName("with non-tools jarmode")
     void withNonToolsJarMode(String jarMode) {
       // When
       String[] result = springBootLayeredJar.getExtractArgs(jarMode);
 
-      // Then
+      // Then - layertools (Spring Boot < 4.1) only supports --destination, not --force
       assertThat(result)
-          .hasSize(1)
-          .containsExactly("extract");
+          .hasSize(3)
+          .containsExactly("extract", "--destination", ".");
     }
 
     @Test
-    @DisplayName("with null jarmode, should return extract without flags")
+    @DisplayName("with null jarmode, should return extract with --destination only")
     void withNullJarMode() {
       // When
       String[] result = springBootLayeredJar.getExtractArgs(null);
 
-      // Then
+      // Then - Default to layertools behavior (no --force)
       assertThat(result)
-          .hasSize(1)
-          .containsExactly("extract");
+          .hasSize(3)
+          .containsExactly("extract", "--destination", ".");
     }
   }
 
