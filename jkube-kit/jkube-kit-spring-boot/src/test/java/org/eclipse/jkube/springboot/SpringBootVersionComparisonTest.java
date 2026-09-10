@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.File;
 import java.io.IOException;
@@ -69,42 +70,18 @@ class SpringBootVersionComparisonTest {
     assertThat(result).isEqualTo(expected);
   }
 
-  @Test
-  @DisplayName("with malformed version, should return false")
-  void withMalformedVersion() {
+  @ParameterizedTest(name = "invalid version ''{0}'' should return false")
+  @ValueSource(strings = {"invalid", "3", "3.x"})
+  @DisplayName("with invalid version formats")
+  void withInvalidVersionFormats(String version) {
     // Given
     springBootLayeredJar = new SpringBootLayeredJar(new File(projectDir, "test.jar"), new KitLogger.SilentLogger());
 
     // When
-    boolean result = springBootLayeredJar.isVersion410OrNewer("invalid");
+    boolean result = springBootLayeredJar.isVersion410OrNewer(version);
 
-    // Then
-    assertThat(result).isFalse();
-  }
-
-  @Test
-  @DisplayName("with version containing only major, should return false")
-  void withMajorOnlyVersion() {
-    // Given
-    springBootLayeredJar = new SpringBootLayeredJar(new File(projectDir, "test.jar"), new KitLogger.SilentLogger());
-
-    // When
-    boolean result = springBootLayeredJar.isVersion410OrNewer("3");
-
-    // Then
-    assertThat(result).isFalse();
-  }
-
-  @Test
-  @DisplayName("with version containing non-numeric minor, should return false and log debug")
-  void withNonNumericMinor() {
-    // Given
-    springBootLayeredJar = new SpringBootLayeredJar(new File(projectDir, "test.jar"), new KitLogger.SilentLogger());
-
-    // When - This hits the NumberFormatException catch block
-    boolean result = springBootLayeredJar.isVersion410OrNewer("3.x");
-
-    // Then
+    // Then - All invalid formats should return false
+    // "invalid" = malformed, "3" = major only, "3.x" = NumberFormatException in minor
     assertThat(result).isFalse();
   }
 
