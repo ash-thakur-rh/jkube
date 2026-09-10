@@ -243,18 +243,18 @@ class LayeredJarGeneratorTest {
   }
 
   @Nested
-  @DisplayName("findLayerBaseDirectory")
-  class FindLayerBaseDirectory {
+  @DisplayName("layer extraction")
+  class LayerExtraction {
 
     @Test
-    @DisplayName("should find layers in root directory for layertools jarmode")
-    void shouldFindLayersInRootForLayertools() throws IOException {
-      // Given
+    @DisplayName("should find layers directly in buildPackageDirectory")
+    void shouldFindLayersInBuildPackageDirectory() throws IOException {
+      // Given - With --destination . flag, layers extract directly to buildPackageDirectory
       File layeredJar = createRealLayeredJar();
-      createExtractedLayersStructure(targetDir, false); // layertools extracts to root
+      createExtractedLayersStructure(targetDir, false);
       LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
 
-      // When - createAssemblyConfiguration calls findLayerBaseDirectory internally
+      // When
       AssemblyConfiguration config = generator.createAssemblyConfiguration(Collections.emptyList());
 
       // Then - Should find layers successfully
@@ -263,12 +263,12 @@ class LayeredJarGeneratorTest {
           .extracting(Assembly::getId)
           .contains("dependencies", "application");
 
-      // And - Verify the actual directory paths (this is what the PR review requested)
+      // And - Verify the actual directory paths point to buildPackageDirectory (not subdirectories)
       assertThat(config.getLayers())
           .filteredOn(assembly -> assembly.getId().equals("dependencies"))
           .flatExtracting(Assembly::getFileSets)
           .extracting(AssemblyFileSet::getDirectory)
-          .allMatch(dir -> dir.getPath().endsWith("dependencies"));
+          .allMatch(dir -> dir.getPath().endsWith("dependencies") && !dir.getPath().contains("layered-"));
     }
 
     @Test

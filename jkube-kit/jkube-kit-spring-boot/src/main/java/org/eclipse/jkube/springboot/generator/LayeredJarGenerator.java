@@ -30,8 +30,6 @@ import static org.eclipse.jkube.kit.common.util.FileUtil.getRelativePath;
 
 public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
 
-  private static final String DEPENDENCIES_LAYER = "dependencies";
-
   private final SpringBootLayeredJar springBootLayeredJar;
   private final File layeredJar;
 
@@ -55,17 +53,13 @@ public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
     layerAssemblies.add(Assembly.builder().id("jkube-includes").fileSets(defaultFileSets).build());
 
     File buildPackageDirectory = getProject().getBuildPackageDirectory();
-    getLogger().debug("Build package directory: %s", buildPackageDirectory.getAbsolutePath());
+    getLogger().debug("Extracting Spring Boot layers to: %s", buildPackageDirectory.getAbsolutePath());
     springBootLayeredJar.extractLayers(buildPackageDirectory);
 
-    // With --destination . and --force flags, layers are always extracted directly to buildPackageDirectory
-    File layerBaseDir = findLayerBaseDirectory(buildPackageDirectory);
-    getLogger().debug("Layer base directory: %s", layerBaseDir.getAbsolutePath());
-
-    // Each layer gets its own Assembly for Docker layer caching
-    // but all files go to the same targetDir (flat runtime structure)
+    // With --destination . flag, layers are always extracted directly to buildPackageDirectory
+    // No need to search for subdirectories - the extraction destination is controlled
     for (String springBootLayer : springBootLayeredJar.listLayers()) {
-      File layerDir = new File(layerBaseDir, springBootLayer);
+      File layerDir = new File(buildPackageDirectory, springBootLayer);
 
       layerAssemblies.add(Assembly.builder()
               .id(springBootLayer)
@@ -85,62 +79,4 @@ public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
         .build();
   }
 
-  /**
-   * Find the base directory containing layer subdirectories.
-   * With --destination . flag, layers are extracted directly to buildPackageDirectory.
-   */
-  private File findLayerBaseDirectory(File buildPackageDirectory) {
-    // Get the first layer name from the actual jar (supports custom layers.xml)
-    List<String> layers = springBootLayeredJar.listLayers();
-    if (layers.isEmpty()) {
-      getLogger().warn("No layers found in Spring Boot jar");
-      return buildPackageDirectory;
-    }
-
-    String firstLayer = layers.get(0);
-
-    // Check if layers exist directly in buildPackageDirectory (standard with --destination .)
-    if (new File(buildPackageDirectory, firstLayer).exists()) {
-      return buildPackageDirectory;
-    }
-
-    // Fallback: Try to find subdirectory based on jar artifact name
-    // (in case --destination flag is not supported by older Spring Boot versions)
-    String jarBaseName = getJarBaseName(layeredJar);
-    if (jarBaseName != null) {
-      File expectedSubdir = new File(buildPackageDirectory, jarBaseName);
-      if (expectedSubdir.isDirectory() && new File(expectedSubdir, firstLayer).exists()) {
-        getLogger().debug("Found layers in artifact-specific subdirectory: %s", jarBaseName);
-        return expectedSubdir;
-      }
-    }
-
-    // Last resort: search all subdirectories for the first layer
-    File[] subdirs = buildPackageDirectory.listFiles(File::isDirectory);
-    if (subdirs != null) {
-      for (File subdir : subdirs) {
-        if (new File(subdir, firstLayer).exists()) {
-          getLogger().debug("Found layers in subdirectory: %s", subdir.getName());
-          return subdir;
-        }
-      }
-    }
-
-    // Default to buildPackageDirectory if no layers found
-    getLogger().warn("Could not find layer directories, using buildPackageDirectory as fallback");
-    return buildPackageDirectory;
-  }
-
-  /**
-   * Get the jar base name without extension.
-   * e.g., "myapp-1.0.0.jar" → "myapp-1.0.0"
-   */
-  private String getJarBaseName(File jar) {
-    if (jar == null) {
-      return null;
-    }
-    String name = jar.getName();
-    int lastDot = name.lastIndexOf('.');
-    return lastDot > 0 ? name.substring(0, lastDot) : name;
-  }
 }
