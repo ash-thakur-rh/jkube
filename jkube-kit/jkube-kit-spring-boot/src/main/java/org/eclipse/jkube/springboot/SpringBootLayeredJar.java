@@ -44,7 +44,7 @@ public class SpringBootLayeredJar {
     try (JarFile jarFile = new JarFile(layeredJar)) {
       return jarFile.getEntry("BOOT-INF/layers.idx") != null && StringUtils.isNotBlank(getMainClass());
     } catch(Exception e) {
-      kitLogger.debug("Couldn't determine if Spring Boot jar %s is layered", layeredJar.getName(), e);
+      kitLogger.debug("Couldn't determine if Spring Boot jar %s is layered: %s", layeredJar.getName(), e.getMessage());
     }
     return false;
   }
@@ -63,7 +63,7 @@ public class SpringBootLayeredJar {
         return Optional.ofNullable(jarFile.getManifest().getMainAttributes().getValue(attributeName));
       }
     } catch (IOException e) {
-      kitLogger.debug("Couldn't read %s from %s", attributeName, layeredJar.getName());
+      kitLogger.debug("Couldn't read %s from %s: %s", attributeName, layeredJar.getName(), e.getMessage());
     }
     return Optional.empty();
   }
