@@ -92,7 +92,7 @@ public class SpringBootLayeredJar {
     if (jarMode != null) {
       try {
         String[] extractArgs = getExtractArgs(jarMode);
-        new LayerToolsCommand(kitLogger, extractionDir, layeredJar, jarMode, extractArgs).execute();
+        executeLayerToolsCommand(extractionDir, jarMode, extractArgs);
         kitLogger.info("Extracted Spring Boot layers using jarmode=%s", jarMode);
         return;
       } catch (IOException ioException) {
@@ -107,7 +107,7 @@ public class SpringBootLayeredJar {
         try {
           kitLogger.debug("Trying jarmode=%s for layer extraction", fallbackJarMode);
           String[] extractArgs = getExtractArgs(fallbackJarMode);
-          new LayerToolsCommand(kitLogger, extractionDir, layeredJar, fallbackJarMode, extractArgs).execute();
+          executeLayerToolsCommand(extractionDir, fallbackJarMode, extractArgs);
           kitLogger.info("Extracted Spring Boot layers using jarmode=%s (fallback)", fallbackJarMode);
           return;
         } catch (IOException ioException) {
@@ -121,6 +121,11 @@ public class SpringBootLayeredJar {
       }
     }
     throw new IllegalStateException("Failure in extracting spring boot jar layers", primaryException);
+  }
+
+  // Package-private seam for testing - allows tests to observe command invocations
+  void executeLayerToolsCommand(File extractionDir, String jarMode, String[] extractArgs) throws IOException {
+    new LayerToolsCommand(kitLogger, extractionDir, layeredJar, jarMode, extractArgs).execute();
   }
 
   // Package-private for testing

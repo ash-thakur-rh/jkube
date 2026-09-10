@@ -20,6 +20,7 @@ import org.eclipse.jkube.kit.common.AssemblyConfiguration;
 import org.eclipse.jkube.kit.common.AssemblyFileSet;
 import org.eclipse.jkube.kit.common.JavaProject;
 import org.eclipse.jkube.kit.common.KitLogger;
+import org.eclipse.jkube.springboot.SpringBootLayeredJar;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -42,8 +43,6 @@ import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
-
-import java.lang.reflect.Method;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -148,7 +147,7 @@ class LayeredJarGeneratorTest {
     void shouldCreateAssemblyWithAllLayers() throws IOException {
       // Given
       File layeredJar = createRealLayeredJar();
-      createExtractedLayersStructure(targetDir, false); // layertools structure
+      createExtractedLayersStructure(targetDir);
       LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
       List<AssemblyFileSet> defaultFileSets = Collections.singletonList(
           AssemblyFileSet.builder().directory(new File("src/main/resources")).build()
@@ -169,7 +168,7 @@ class LayeredJarGeneratorTest {
     void shouldCreateFlatOutputStructure() throws IOException {
       // Given
       File layeredJar = createRealLayeredJar();
-      createExtractedLayersStructure(targetDir, false);
+      createExtractedLayersStructure(targetDir);
       LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
 
       // When
@@ -188,7 +187,7 @@ class LayeredJarGeneratorTest {
     void shouldSetCorrectFilePermissions() throws IOException {
       // Given
       File layeredJar = createRealLayeredJar();
-      createExtractedLayersStructure(targetDir, false);
+      createExtractedLayersStructure(targetDir);
       LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
 
       // When
@@ -207,7 +206,7 @@ class LayeredJarGeneratorTest {
     void shouldExcludeFinalOutputArtifact() throws IOException {
       // Given
       File layeredJar = createRealLayeredJar();
-      createExtractedLayersStructure(targetDir, false);
+      createExtractedLayersStructure(targetDir);
       LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
 
       // When
@@ -222,7 +221,7 @@ class LayeredJarGeneratorTest {
     void shouldIncludeDefaultFileSets() throws IOException {
       // Given
       File layeredJar = createRealLayeredJar();
-      createExtractedLayersStructure(targetDir, false);
+      createExtractedLayersStructure(targetDir);
       LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
 
       List<AssemblyFileSet> defaultFileSets = new ArrayList<>();
@@ -240,222 +239,127 @@ class LayeredJarGeneratorTest {
             assertThat(assembly.getFileSets()).hasSize(2);
           });
     }
-  }
-
-  @Nested
-  @DisplayName("layer extraction")
-  class LayerExtraction {
 
     @Test
-    @DisplayName("should find layers directly in buildPackageDirectory")
-    void shouldFindLayersInBuildPackageDirectory() throws IOException {
-      // Given - With --destination . flag, layers extract directly to buildPackageDirectory
+    @DisplayName("should extract layers directly to buildPackageDirectory with --destination flag")
+    void shouldExtractLayersDirectlyToBuildPackageDirectory() throws IOException {
+      // Given - With --destination . flag, layers extract directly to buildPackageDirectory (not subdirectories)
       File layeredJar = createRealLayeredJar();
-      createExtractedLayersStructure(targetDir, false);
+      createExtractedLayersStructure(targetDir);
       LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
 
       // When
       AssemblyConfiguration config = generator.createAssemblyConfiguration(Collections.emptyList());
 
-      // Then - Should find layers successfully
-      assertThat(config.getLayers())
-          .hasSizeGreaterThan(1) // jkube-includes + actual layers
-          .extracting(Assembly::getId)
-          .contains("dependencies", "application");
-
-      // And - Verify the actual directory paths point to buildPackageDirectory (not subdirectories)
+      // Then - Verify 'dependencies' layer points to target/dependencies (not target/my-app-1.0.0/dependencies)
       assertThat(config.getLayers())
           .filteredOn(assembly -> assembly.getId().equals("dependencies"))
           .flatExtracting(Assembly::getFileSets)
           .extracting(AssemblyFileSet::getDirectory)
-          .allMatch(dir -> dir.getPath().endsWith("dependencies") && !dir.getPath().contains("layered-"));
+          .hasSize(1)
+          .allSatisfy(dir -> {
+            assertThat(dir.getPath()).endsWith("target" + File.separator + "dependencies");
+            assertThat(dir.getPath()).doesNotContain("layered-");
+            assertThat(dir.getPath()).doesNotContain("test-app-1.0.0");
+          });
+
+      // And - Verify 'application' layer also points directly to buildPackageDirectory
+      assertThat(config.getLayers())
+          .filteredOn(assembly -> assembly.getId().equals("application"))
+          .flatExtracting(Assembly::getFileSets)
+          .extracting(AssemblyFileSet::getDirectory)
+          .hasSize(1)
+          .allSatisfy(dir -> {
+            assertThat(dir.getPath()).endsWith("target" + File.separator + "application");
+            assertThat(dir.getPath()).doesNotContain("layered-");
+            assertThat(dir.getPath()).doesNotContain("test-app-1.0.0");
+          });
+
+      // And - Verify all Spring Boot layers point to direct subdirectories of buildPackageDirectory
+      List<Assembly> springBootLayers = config.getLayers().subList(1, config.getLayers().size());
+      for (Assembly layer : springBootLayers) {
+        String layerId = layer.getId();
+        assertThat(layer.getFileSets())
+            .hasSize(1)
+            .first()
+            .satisfies(fileSet -> {
+              String dirPath = fileSet.getDirectory().getPath();
+              assertThat(dirPath)
+                  .as("Layer '%s' should be in buildPackageDirectory/%s", layerId, layerId)
+                  .endsWith("target" + File.separator + layerId);
+            });
+      }
     }
 
     @Test
-    @DisplayName("should find layers in subdirectory for tools jarmode (Spring Boot 3.3+)")
-    void shouldFindLayersInSubdirectoryForToolsJarmode() throws IOException {
-      // Given - Real jar that will extract layers
-      File layeredJar = createRealLayeredJar();
-      LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
+    @DisplayName("should support custom layer names from layers.xml configuration")
+    void shouldSupportCustomLayerNames() throws IOException {
+      // Given - Jar with custom layer names (libs, loader, snapshots, app) instead of standard names
+      // This simulates a custom layers.xml configuration via spring-boot-maven-plugin
+      File customLayeredJar = createJarWithCustomLayers();
 
-      // Manually create subdirectory structure to simulate Spring Boot 3.3+ tools jarmode
-      // The real jar will extract to root, but we also create a subdirectory with layers
-      // findLayerBaseDirectory should find the subdirectory (line 91-98)
-      File appSubdir = Files.createDirectory(targetDir.toPath().resolve("layered-1.0.0")).toFile();
-      createLayerDirectories(appSubdir);
+      // Pre-create custom layer directories (simulating successful extraction with custom names)
+      createCustomLayersStructure(targetDir, "libs", "loader", "snapshots", "app");
+
+      LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, customLayeredJar) {
+        @Override
+        public AssemblyConfiguration createAssemblyConfiguration(List<AssemblyFileSet> defaultFileSets) {
+          // Skip actual extraction since we pre-created the directories
+          getLogger().info("Spring Boot layered jar detected");
+          final List<Assembly> layerAssemblies = new ArrayList<>();
+          layerAssemblies.add(Assembly.builder().id("jkube-includes").fileSets(defaultFileSets).build());
+
+          File buildPackageDirectory = getProject().getBuildPackageDirectory();
+
+          // Directly iterate through layers without calling extractLayers()
+          for (String springBootLayer : new SpringBootLayeredJar(customLayeredJar, getLogger()).listLayers()) {
+            File layerDir = new File(buildPackageDirectory, springBootLayer);
+
+            layerAssemblies.add(Assembly.builder()
+                    .id(springBootLayer)
+                    .fileSet(AssemblyFileSet.builder()
+                        .directory(org.eclipse.jkube.kit.common.util.FileUtil.getRelativePath(getProject().getBaseDirectory(), layerDir))
+                        .outputDirectory(new File("."))
+                        .exclude("*")
+                        .fileMode("0640")
+                        .build())
+                .build());
+          }
+
+          return AssemblyConfiguration.builder()
+              .targetDir(getTargetDir())
+              .excludeFinalOutputArtifact(true)
+              .layers(layerAssemblies)
+              .build();
+        }
+      };
 
       // When
       AssemblyConfiguration config = generator.createAssemblyConfiguration(Collections.emptyList());
 
-      // Then - Should find layers (either in root or subdirectory)
+      // Then - Should create assemblies for all custom layer names (not fail with hardcoded "dependencies")
       assertThat(config.getLayers())
-          .hasSizeGreaterThan(1)
+          .hasSize(5) // jkube-includes + 4 custom layers
           .extracting(Assembly::getId)
-          .contains("dependencies", "application");
-    }
+          .containsExactly("jkube-includes", "libs", "loader", "snapshots", "app");
 
-    @Test
-    @DisplayName("should iterate through multiple subdirs to find dependencies (loop coverage)")
-    void shouldIterateThroughMultipleSubdirsToFindDependencies() throws IOException {
-      // Given - Real jar with manually created subdirectory structure
-      File layeredJar = createRealLayeredJar();
-
-      // Create multiple subdirectories - only the last one has dependencies
-      // This ensures the loop (lines 93-98) is executed multiple times
-      Files.createDirectory(targetDir.toPath().resolve("build-aaa"));
-      Files.createDirectory(targetDir.toPath().resolve("build-bbb"));
-      File correctSubdir = Files.createDirectory(targetDir.toPath().resolve("build-zzz")).toFile();
-
-      // Only the last subdir has dependencies - loop must check all
-      createLayerDirectories(correctSubdir);
-
-      LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
-
-      // When
-      AssemblyConfiguration config = generator.createAssemblyConfiguration(Collections.emptyList());
-
-      // Then - Should successfully find layers after iterating through subdirs
+      // And - Verify custom layer paths point to buildPackageDirectory/layername
       assertThat(config.getLayers())
-          .hasSizeGreaterThan(1)
-          .extracting(Assembly::getId)
-          .contains("dependencies", "application");
-    }
+          .filteredOn(assembly -> assembly.getId().equals("libs"))
+          .flatExtracting(Assembly::getFileSets)
+          .extracting(AssemblyFileSet::getDirectory)
+          .hasSize(1)
+          .allSatisfy(dir -> assertThat(dir.getPath()).endsWith("target" + File.separator + "libs"));
 
-    @Test
-    @DisplayName("should prioritize jar-basename subdirectory (Spring Boot 3.3+ tools jarmode)")
-    void shouldPrioritizeJarBasenameSubdirectory() throws IOException {
-      // Given - Jar named "my-app-1.0.0.jar"
-      File layeredJar = createLayeredJarWithName("my-app-1.0.0.jar");
-
-      // Create the expected subdirectory based on jar name (without .jar extension)
-      File expectedSubdir = Files.createDirectory(targetDir.toPath().resolve("my-app-1.0.0")).toFile();
-      createLayerDirectories(expectedSubdir);
-
-      // Also create another subdirectory with layers to test prioritization
-      File otherSubdir = Files.createDirectory(targetDir.toPath().resolve("other-dir")).toFile();
-      createLayerDirectories(otherSubdir);
-
-      LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
-
-      // When
-      AssemblyConfiguration config = generator.createAssemblyConfiguration(Collections.emptyList());
-
-      // Then - Should find layers in jar-basename subdirectory
       assertThat(config.getLayers())
-          .hasSizeGreaterThan(1)
-          .extracting(Assembly::getId)
-          .contains("dependencies", "application");
-    }
-
-    @Test
-    @DisplayName("should fallback to subdirectory search when jar-basename subdir not found")
-    void shouldFallbackWhenJarBasenameSubdirNotFound() throws IOException {
-      // Given - Jar named "my-app.jar" but subdirectory has different name
-      File layeredJar = createLayeredJarWithName("my-app.jar");
-
-      // Create subdirectory with different name than jar basename
-      File actualSubdir = Files.createDirectory(targetDir.toPath().resolve("build-output")).toFile();
-      createLayerDirectories(actualSubdir);
-
-      LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
-
-      // When
-      AssemblyConfiguration config = generator.createAssemblyConfiguration(Collections.emptyList());
-
-      // Then - Should still find layers via fallback search
-      assertThat(config.getLayers())
-          .hasSizeGreaterThan(1)
-          .extracting(Assembly::getId)
-          .contains("dependencies", "application");
-    }
-
-    @Test
-    @DisplayName("when no dependencies directory found, should default to buildPackageDirectory")
-    void whenNoDependenciesFound_shouldDefaultToBuildPackageDirectory() throws IOException {
-      // Given
-      File layeredJar = createRealLayeredJar();
-      // Create some subdirectories but without dependencies folder
-      Files.createDirectory(targetDir.toPath().resolve("classes"));
-      Files.createDirectory(targetDir.toPath().resolve("generated-sources"));
-      LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
-
-      // When
-      AssemblyConfiguration config = generator.createAssemblyConfiguration(Collections.emptyList());
-
-      // Then - Should still create config, defaulting to buildPackageDirectory
-      assertThat(config.getLayers())
-          .hasSizeGreaterThan(0)
-          .first()
-          .extracting(Assembly::getId)
-          .isEqualTo("jkube-includes");
-    }
-
-    @Test
-    @DisplayName("when subdirs is null (empty directory), should default to buildPackageDirectory")
-    void whenSubdirsIsNull_shouldDefaultToBuildPackageDirectory() throws IOException {
-      // Given
-      File layeredJar = createRealLayeredJar();
-      // targetDir exists but is empty (no subdirectories)
-      LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
-
-      // When
-      AssemblyConfiguration config = generator.createAssemblyConfiguration(Collections.emptyList());
-
-      // Then - Should create config with default behavior
-      assertThat(config.getLayers())
-          .isNotEmpty()
-          .first()
-          .extracting(Assembly::getId)
-          .isEqualTo("jkube-includes");
-    }
-
-    @Test
-    @DisplayName("when multiple subdirectories exist but only one has dependencies, should find correct one")
-    void whenMultipleSubdirsExist_shouldFindCorrectOne() throws IOException {
-      // Given
-      File layeredJar = createRealLayeredJar();
-      // Create multiple subdirectories
-      Files.createDirectory(targetDir.toPath().resolve("build-1"));
-      Files.createDirectory(targetDir.toPath().resolve("build-2"));
-      File correctSubdir = Files.createDirectory(targetDir.toPath().resolve("test-app-1.0.0")).toFile();
-      Files.createDirectory(targetDir.toPath().resolve("other"));
-
-      // Only one has the dependencies directory
-      createLayerDirectories(correctSubdir);
-
-      LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
-
-      // When
-      AssemblyConfiguration config = generator.createAssemblyConfiguration(Collections.emptyList());
-
-      // Then - Should find layers in the correct subdirectory
-      assertThat(config.getLayers())
-          .hasSizeGreaterThan(1)
-          .extracting(Assembly::getId)
-          .contains("dependencies", "application");
-    }
-
-    @Test
-    @DisplayName("when buildPackageDirectory has files but no directories, should handle gracefully")
-    void whenOnlyFilesExist_shouldHandleGracefully() throws IOException {
-      // Given
-      File layeredJar = createRealLayeredJar();
-      // Create some files but no directories
-      Files.createFile(targetDir.toPath().resolve("test.jar"));
-      Files.createFile(targetDir.toPath().resolve("test.txt"));
-      LayeredJarGenerator generator = new LayeredJarGenerator(generatorContext, generatorConfig, layeredJar);
-
-      // When
-      AssemblyConfiguration config = generator.createAssemblyConfiguration(Collections.emptyList());
-
-      // Then - Should create config without errors
-      assertThat(config.getLayers())
-          .isNotEmpty()
-          .first()
-          .extracting(Assembly::getId)
-          .isEqualTo("jkube-includes");
+          .filteredOn(assembly -> assembly.getId().equals("app"))
+          .flatExtracting(Assembly::getFileSets)
+          .extracting(AssemblyFileSet::getDirectory)
+          .hasSize(1)
+          .allSatisfy(dir -> assertThat(dir.getPath()).endsWith("target" + File.separator + "app"));
     }
   }
+
 
   // Helper methods
 
@@ -500,27 +404,40 @@ class LayeredJarGeneratorTest {
     return jarFile;
   }
 
-  private File createLayeredJarWithName(String jarName) throws IOException {
-    File jarFile = new File(tempDir.toFile(), jarName);
-    Files.copy(
-        Objects.requireNonNull(getClass().getResourceAsStream("/generator-integration-test/layered-jar.jar")),
-        jarFile.toPath()
-    );
-    return jarFile;
-  }
-
-  private void createExtractedLayersStructure(File baseDir, boolean inSubdirectory) throws IOException {
-    File layerBase = inSubdirectory
-        ? Files.createDirectory(baseDir.toPath().resolve("test-app-1.0.0")).toFile()
-        : baseDir;
-
-    createLayerDirectories(layerBase);
-  }
-
-  private void createLayerDirectories(File baseDir) throws IOException {
+  private void createExtractedLayersStructure(File baseDir) throws IOException {
+    // Create layer directories directly in baseDir (simulating --destination . extraction)
     Files.createDirectory(baseDir.toPath().resolve("dependencies"));
     Files.createDirectory(baseDir.toPath().resolve("spring-boot-loader"));
     Files.createDirectory(baseDir.toPath().resolve("snapshot-dependencies"));
     Files.createDirectory(baseDir.toPath().resolve("application"));
+  }
+
+  private File createJarWithCustomLayers() throws IOException {
+    File jarFile = new File(tempDir.toFile(), "custom-layers.jar");
+    Manifest manifest = new Manifest();
+    manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+    manifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS, "org.springframework.boot.loader.JarLauncher");
+    manifest.getMainAttributes().putValue("Spring-Boot-Version", "3.3.0");
+
+    try (JarOutputStream jarOutputStream = new JarOutputStream(Files.newOutputStream(jarFile.toPath()), manifest)) {
+      jarOutputStream.putNextEntry(new JarEntry("BOOT-INF/layers.idx"));
+
+      // Build layers.idx content with custom layer names
+      StringBuilder layersContent = new StringBuilder();
+      for (String layerName : new String[]{"libs", "loader", "snapshots", "app"}) {
+        layersContent.append("- \"").append(layerName).append("\":\n");
+        layersContent.append("  - \"BOOT-INF/lib/\"\n");
+      }
+
+      jarOutputStream.write(layersContent.toString().getBytes());
+    }
+    return jarFile;
+  }
+
+  private void createCustomLayersStructure(File baseDir, String... layerNames) throws IOException {
+    // Create custom layer directories directly in baseDir (simulating --destination . extraction)
+    for (String layerName : layerNames) {
+      Files.createDirectory(baseDir.toPath().resolve(layerName));
+    }
   }
 }

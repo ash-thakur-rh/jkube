@@ -28,7 +28,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
@@ -36,12 +35,15 @@ import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests for fallback mechanism when Spring Boot version cannot be detected.
  * This test verifies that extractLayers tries both jarmodes (tools then layertools)
  * when the Spring-Boot-Version is missing from the JAR manifest.
+ *
+ * Uses a package-private seam (executeLayerToolsCommand) to observe actual command
+ * invocations from production code without mocking the extraction logic.
  */
 @DisplayName("Spring Boot Layered Jar Fallback Mechanism")
 class SpringBootLayeredJarFallbackTest {
@@ -57,25 +59,50 @@ class SpringBootLayeredJarFallbackTest {
     extractionDir = Files.createDirectory(new File(projectDir, "extraction").toPath()).toFile();
   }
 
+  /**
+   * Represents a single command invocation captured during testing.
+   */
+  static class CommandInvocation {
+    final String jarMode;
+    final String[] extractArgs;
+
+    CommandInvocation(String jarMode, String[] extractArgs) {
+      this.jarMode = jarMode;
+      this.extractArgs = extractArgs;
+    }
+  }
+
   @Test
-  @DisplayName("when version missing, should try both jarmodes in fallback sequence")
+  @DisplayName("when version missing, should try both jarmodes in fallback sequence with correct args")
   void whenVersionMissing_shouldTryBothJarmodesInSequence() throws IOException {
     // Given - JAR without Spring-Boot-Version in manifest
     final File jarFile = createJarWithoutVersion();
     springBootLayeredJar = new TestableSpringBootLayeredJar(jarFile, new KitLogger.SilentLogger());
 
-    // When - extractLayers is called (will fail because no actual jarmode, but we track attempts)
-    assertThatCode(() -> springBootLayeredJar.extractLayers(extractionDir))
+    // When - extractLayers is called (will fail because commands are stubbed)
+    assertThatThrownBy(() -> springBootLayeredJar.extractLayers(extractionDir))
       .isInstanceOf(IllegalStateException.class)
       .hasMessageContaining("Failure in extracting spring boot jar layers");
 
-    // Then - verify fallback tried both jarmodes in correct order
-    assertThat(springBootLayeredJar.attemptedJarModes)
+    // Then - verify fallback tried both jarmodes in correct order with correct args
+    assertThat(springBootLayeredJar.commandInvocations)
       .as("Fallback should try 'tools' first (forward compatible), then 'layertools'")
-      .containsExactly(JARMODE_TOOLS, JARMODE_LAYERTOOLS);
+      .hasSize(2);
+
+    // First attempt: tools jarmode with --force flag
+    CommandInvocation firstAttempt = springBootLayeredJar.commandInvocations.get(0);
+    assertThat(firstAttempt.jarMode).isEqualTo(JARMODE_TOOLS);
+    assertThat(firstAttempt.extractArgs)
+      .containsExactly("extract", "--launcher", "--layers", "--destination", ".", "--force");
+
+    // Second attempt: layertools jarmode without --force flag
+    CommandInvocation secondAttempt = springBootLayeredJar.commandInvocations.get(1);
+    assertThat(secondAttempt.jarMode).isEqualTo(JARMODE_LAYERTOOLS);
+    assertThat(secondAttempt.extractArgs)
+      .containsExactly("extract", "--destination", ".");
   }
 
-  @ParameterizedTest(name = "when version is {0}, should use {1} without fallback")
+  @ParameterizedTest(name = "when version is {0}, should use {1} with correct args, no fallback")
   @CsvSource({
     "2.7.14, layertools",
     "3.3.0, layertools",
@@ -89,15 +116,30 @@ class SpringBootLayeredJarFallbackTest {
     final File jarFile = createJarWithVersion(version);
     springBootLayeredJar = new TestableSpringBootLayeredJar(jarFile, new KitLogger.SilentLogger());
 
-    // When - extractLayers is called (will fail but we track the jarmode used)
-    assertThatCode(() -> springBootLayeredJar.extractLayers(extractionDir))
-      .isInstanceOf(IllegalStateException.class);
+    // When - extractLayers is called (will fail and wrap IOException in IllegalStateException)
+    assertThatThrownBy(() -> springBootLayeredJar.extractLayers(extractionDir))
+      .isInstanceOf(IllegalStateException.class)
+      .hasMessageContaining("Failure in extracting spring boot jar layers")
+      .hasCauseInstanceOf(IOException.class);
 
-    // Then - verify only the expected jarmode was tried (no fallback)
-    // NOTE: This test only verifies determineJarMode() logic since extractLayers() is overridden
-    assertThat(springBootLayeredJar.attemptedJarModes)
+    // Then - verify only the expected jarmode was tried (no fallback) with correct args
+    assertThat(springBootLayeredJar.commandInvocations)
       .as("Spring Boot %s should use '%s' directly, no fallback", version, expectedJarMode)
-      .containsExactly(expectedJarMode);
+      .hasSize(1);
+
+    CommandInvocation invocation = springBootLayeredJar.commandInvocations.get(0);
+    assertThat(invocation.jarMode).isEqualTo(expectedJarMode);
+
+    // Verify correct args based on jarmode
+    if (JARMODE_TOOLS.equals(expectedJarMode)) {
+      assertThat(invocation.extractArgs)
+        .as("tools jarmode should include --force flag")
+        .containsExactly("extract", "--launcher", "--layers", "--destination", ".", "--force");
+    } else {
+      assertThat(invocation.extractArgs)
+        .as("layertools jarmode should not include --force flag")
+        .containsExactly("extract", "--destination", ".");
+    }
   }
 
   private File createJarWithVersion(String version) throws IOException {
@@ -127,26 +169,23 @@ class SpringBootLayeredJarFallbackTest {
   }
 
   /**
-   * Testable subclass that tracks jarmode attempts instead of executing commands.
+   * Testable subclass that observes actual command invocations from production code.
+   * Overrides the package-private seam to capture jarMode and extractArgs without
+   * executing the actual external command.
    */
   private static class TestableSpringBootLayeredJar extends SpringBootLayeredJar {
-    final List<String> attemptedJarModes = new ArrayList<>();
+    final List<CommandInvocation> commandInvocations = new ArrayList<>();
 
     TestableSpringBootLayeredJar(File layeredJar, KitLogger kitLogger) {
       super(layeredJar, kitLogger);
     }
 
     @Override
-    public void extractLayers(File extractionDir) {
-      String jarMode = determineJarMode();
-      if (jarMode != null) {
-        attemptedJarModes.add(jarMode);
-        throw new IllegalStateException("Simulated extraction failure");
-      }
-
-      // Simulate fallback behavior
-      Collections.addAll(attemptedJarModes, JARMODE_TOOLS, JARMODE_LAYERTOOLS);
-      throw new IllegalStateException("Failure in extracting spring boot jar layers");
+    void executeLayerToolsCommand(File extractionDir, String jarMode, String[] extractArgs) throws IOException {
+      // Capture the actual invocation from production code
+      commandInvocations.add(new CommandInvocation(jarMode, extractArgs));
+      // Simulate command failure to trigger fallback or error handling
+      throw new IOException("Simulated extraction failure");
     }
   }
 }
