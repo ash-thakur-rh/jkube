@@ -31,11 +31,9 @@ import static org.eclipse.jkube.kit.common.util.FileUtil.getRelativePath;
 public class LayeredJarGenerator extends AbstractSpringBootNestedGenerator {
 
   private final SpringBootLayeredJar springBootLayeredJar;
-  private final File layeredJar;
 
   public LayeredJarGenerator(GeneratorContext generatorContext, GeneratorConfig generatorConfig, File layeredJar) {
     super(generatorContext, generatorConfig);
-    this.layeredJar = layeredJar;
     springBootLayeredJar = new SpringBootLayeredJar(layeredJar, getLogger());
   }
 
